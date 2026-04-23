@@ -110,14 +110,14 @@ Kapsule follows the **GNOME Human Interface Guidelines (HIG)** to provide a firs
 
 ## 6. Implementation Roadmap (6-Week Cycle)
 
-| Phase      | Milestone           | Focus                                                                  |
-|------------|---------------------|------------------------------------------------------------------------|
-| **Week 1** | **The Heart**       | Tauri setup + Rust "Engine Switcher" (Docker/Podman socket detection). |
-| **Week 2** | **The Library**     | Registry Explorer UI + `podman/docker search` integration.             |
-| **Week 3** | **The Vessel**      | Container Creation UI (Mounts, Ports, Security toggles).               |
-| **Week 4** | **The Integration** | `.desktop` file generation logic and Icon pathing.                     |
-| **Week 5** | **The Dashboard**   | Real-time monitoring, logs, and container lifecycle management.        |
-| **Week 6** | **The Polish**      | Error handling, Arch Linux PKGBUILD, and "Fortress" presets.           |
+| Phase      | Milestone              | Focus                                                                                   |
+|------------|------------------------|-----------------------------------------------------------------------------------------|
+| **Week 1** | **The Foundation**     | Tauri + Svelte scaffold. Rust Engine Switcher: auto-detect Podman/Docker sockets.       |
+| **Week 2** | **The Vessel**         | Container creation UI — isolated $HOME, mounts, port routing, Volatile Mode toggle.    |
+| **Week 3** | **The Dashboard**      | Real-time CPU/RAM monitoring, container lifecycle (start/stop/delete), log viewer.     |
+| **Week 4** | **The Library**        | Registry Explorer — multi-registry search, tag browser, image pull with progress UI.  |
+| **Week 5** | **The Fortress**       | Security hardening — env scrubbing, network toggle, userns mapping, Trivy integration. |
+| **Week 6** | **The Polish**         | .desktop file generator, icon management, error handling, Arch PKGBUILD.              |
 
 ---
 
