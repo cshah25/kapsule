@@ -1,0 +1,22 @@
+services:
+  kapsule-dev:
+    build:
+      context: .
+      dockerfile: dev.Dockerfile
+    volumes:
+      # Mount the project directory
+      - ..:/home/developer/app
+      # GUI Passthrough (X11)
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ${XAUTHORITY:-$HOME/.Xauthority}:/home/developer/.Xauthority:ro
+      # Podman/Docker Socket Passthrough (DooD)
+      - /run/user/1000/podman/podman.sock:/run/user/1000/podman/podman.sock:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - DISPLAY=${DISPLAY}
+      - XAUTHORITY=/home/developer/.Xauthority
+      - QT_X11_NO_MITSHM=1
+    network_mode: host
+    ipc: host
+    privileged: true # Required for some container-in-container operations
+    user: "1000:1000" # Match host user ID
