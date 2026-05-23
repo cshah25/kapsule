@@ -17,7 +17,7 @@
     disable_network: false,
     env_vars: [] as { key: string; value: string }[],
     ports: [] as { host: number; container: number }[],
-    mounts: [] as { host_path: string; container_path: string; read_only: boolean }[],
+    mounts: [] as { host_path: string; container_path: string; read_only: boolean; isDropdownOpen?: boolean }[],
   });
 
   let isSubmitting = $state(false);
@@ -56,6 +56,16 @@
       await invoke("create_vessel", { payload: form });
       onSuccess();
       onClose();
+      form = {
+        name: "",
+        image: form.image,
+        isolated_home: true,
+        volatile: false,
+        disable_network: false,
+        env_vars: [],
+        ports: [],
+        mounts: [],
+      };
     } catch (err: any) {
       errorMsg = err.toString();
     } finally {
@@ -241,6 +251,51 @@
 
         <div class="space-y-4">
           <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold uppercase tracking-wider text-white/50">Folder Mounts</h3>
+            <button class="text-xs text-[var(--color-kap-accent)] hover:underline" onclick={addMount}>+ Add Mount</button>
+          </div>
+          
+          {#if form.mounts.length === 0}
+            <p class="text-xs text-white/40 italic">No extra folders mounted.</p>
+          {/if}
+          
+          <div class="space-y-2">
+            {#each form.mounts as mount, i}
+              <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                <input type="text" class="kap-input flex-1 min-w-[120px] text-sm" placeholder="Host Path (/mnt/...)" bind:value={mount.host_path} />
+                <span class="text-white/50 hidden sm:block">→</span>
+                <input type="text" class="kap-input flex-1 min-w-[120px] text-sm" placeholder="Container Path (/app)" bind:value={mount.container_path} />
+                
+                <div class="relative w-20 shrink-0">
+                  <button 
+                    type="button"
+                    class="kap-input w-full flex items-center justify-between text-left text-sm px-2 {mount.isDropdownOpen ? 'rounded-b-none border-b-[var(--color-kap-border)]' : ''}" 
+                    onclick={() => mount.isDropdownOpen = !mount.isDropdownOpen}
+                  >
+                    <span>{mount.read_only ? 'RO' : 'RW'}</span>
+                    <svg class="w-3 h-3 text-white/50 shrink-0 transition-transform {mount.isDropdownOpen ? 'rotate-180' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                  </button>
+                  
+                  {#if mount.isDropdownOpen}
+                    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+                    <div class="fixed inset-0 z-40" onclick={() => mount.isDropdownOpen = false}></div>
+                    <div class="absolute top-full left-0 right-0 z-50 bg-[var(--color-kap-surface2)] border border-[var(--color-kap-border)] border-t-0 rounded-b-[var(--radius-kap-sm)] shadow-xl flex flex-col">
+                      <button type="button" class="px-2 py-1.5 text-xs text-left hover:bg-white/5 {mount.read_only ? 'bg-white/10' : ''}" onclick={() => { mount.read_only = true; mount.isDropdownOpen = false; }}>RO</button>
+                      <button type="button" class="px-2 py-1.5 text-xs text-left hover:bg-white/5 {!mount.read_only ? 'bg-white/10' : ''}" onclick={() => { mount.read_only = false; mount.isDropdownOpen = false; }}>RW</button>
+                    </div>
+                  {/if}
+                </div>
+
+                <button aria-label="Remove folder mount" class="btn btn-ghost text-red-400 hover:bg-red-400/10 p-2" onclick={() => removeMount(i)}>
+                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+            {/each}
+          </div>
+        </div>
+
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
             <h3 class="text-sm font-semibold uppercase tracking-wider text-white/50">Port Routing</h3>
             <button class="text-xs text-[var(--color-kap-accent)] hover:underline" onclick={addPort}>+ Add Port</button>
           </div>
@@ -256,34 +311,6 @@
                 <span class="text-white/50">→</span>
                 <input type="number" class="kap-input w-24 text-sm" placeholder="Container" bind:value={port.container} />
                 <button aria-label="Remove port mapping" class="btn btn-ghost text-red-400 hover:bg-red-400/10 p-2 ml-auto" onclick={() => removePort(i)}>
-                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
-                </button>
-              </div>
-            {/each}
-          </div>
-        </div>
-
-        <div class="space-y-4">
-          <div class="flex items-center justify-between">
-            <h3 class="text-sm font-semibold uppercase tracking-wider text-white/50">Folder Mounts</h3>
-            <button class="text-xs text-[var(--color-kap-accent)] hover:underline" onclick={addMount}>+ Add Mount</button>
-          </div>
-          
-          {#if form.mounts.length === 0}
-            <p class="text-xs text-white/40 italic">No extra folders mounted.</p>
-          {/if}
-          
-          <div class="space-y-2">
-            {#each form.mounts as mount, i}
-              <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                <input type="text" class="kap-input flex-1 min-w-[120px] text-sm" placeholder="Host Path (/mnt/...)" bind:value={mount.host_path} />
-                <span class="text-white/50 hidden sm:block">→</span>
-                <input type="text" class="kap-input flex-1 min-w-[120px] text-sm" placeholder="Container Path (/app)" bind:value={mount.container_path} />
-                <select class="kap-input text-sm px-2" bind:value={mount.read_only}>
-                  <option value={true}>RO</option>
-                  <option value={false}>RW</option>
-                </select>
-                <button aria-label="Remove folder mount" class="btn btn-ghost text-red-400 hover:bg-red-400/10 p-2" onclick={() => removeMount(i)}>
                   <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
                 </button>
               </div>
