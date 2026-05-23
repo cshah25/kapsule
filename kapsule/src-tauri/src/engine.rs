@@ -98,11 +98,11 @@ pub async fn detect_engines() -> EngineStatus {
     let podman_ok = probe_socket(&podman_path).await.is_some();
     let docker_ok = probe_socket(&docker_path).await.is_some();
 
-    // Prefer Podman (rootless / more secure) when both are present.
-    let active_engine = if podman_ok {
-        Some(Engine::Podman)
-    } else if docker_ok {
+    // Prefer Docker per user request, fallback to Podman.
+    let active_engine = if docker_ok {
         Some(Engine::Docker)
+    } else if podman_ok {
+        Some(Engine::Podman)
     } else {
         None
     };
