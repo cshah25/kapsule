@@ -11,7 +11,7 @@
     pkgs = import nixpkgs { inherit system; };
 
     libraries = with pkgs; [
-      webkitgtk
+      webkitgtk_4_1
       gtk3
       cairo
       gdk-pixbuf
@@ -29,9 +29,8 @@
       openssl_3
       glib
       gtk3
-      libsoup
-      webkitgtk
-      appimagekit
+      libsoup_3
+      webkitgtk_4_1
     ];
   in
   {
