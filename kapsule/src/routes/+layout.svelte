@@ -11,7 +11,9 @@
   import { onMount } from "svelte";
   import HeaderBar from "$lib/components/HeaderBar.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
+  import CreateVesselWizard from "$lib/components/CreateVesselWizard.svelte";
   import { detectEngines } from "$lib/stores/engine";
+  import { uiState } from "$lib/stores/ui.svelte";
 
   interface Props {
     children: import("svelte").Snippet;
@@ -35,3 +37,9 @@
     </main>
   </div>
 </div>
+
+<CreateVesselWizard 
+  isOpen={uiState.isWizardOpen} 
+  onClose={() => uiState.isWizardOpen = false} 
+  onSuccess={() => console.log("Vessel created successfully!")} 
+/>

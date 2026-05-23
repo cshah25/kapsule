@@ -8,6 +8,9 @@
   import VesselCard from "$lib/components/VesselCard.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import { engineStatus, activeEngine } from "$lib/stores/engine";
+  import { uiState } from "$lib/stores/ui.svelte";
+  import { invoke } from "@tauri-apps/api/core";
+  import { onMount, onDestroy } from "svelte";
 
   // ---------------------------------------------------------------------------
   // Stub vessels for UI development (will be replaced by Tauri invoke in Week 3)
@@ -24,51 +27,62 @@
     mem_limit_mb: number;
   }
 
-  let vessels = $state<VesselInfo[]>([
-    {
-      id: "node24-dev",
-      name: "node24-dev",
-      image: "docker.io/library/node:24-alpine",
-      status: "running",
-      cpu_percent: 12.4,
-      mem_used_mb: 148,
-      mem_limit_mb: 512,
-    },
-    {
-      id: "postgres-db",
-      name: "postgres-db",
-      image: "docker.io/library/postgres:16",
-      status: "stopped",
-      cpu_percent: 0,
-      mem_used_mb: 0,
-      mem_limit_mb: 256,
-    },
-    {
-      id: "rust-sandbox",
-      name: "rust-sandbox",
-      image: "docker.io/library/rust:1-slim",
-      status: "running",
-      cpu_percent: 65.2,
-      mem_used_mb: 310,
-      mem_limit_mb: 512,
-    },
-  ]);
+  let vessels = $state<VesselInfo[]>([]);
+  let pollInterval: ReturnType<typeof setInterval>;
 
-  // ---------------------------------------------------------------------------
-  // Handlers (stubs — will invoke Tauri commands in Week 3)
-  // ---------------------------------------------------------------------------
-  function handleStart(id: string) {
-    vessels = vessels.map((v) => v.id === id ? { ...v, status: "running" as VesselStatus } : v);
+  async function fetchVessels() {
+    if ($activeEngine) {
+      try {
+        vessels = await invoke<VesselInfo[]>("list_vessels");
+      } catch (err) {
+        console.error("Failed to fetch vessels:", err);
+      }
+    }
   }
 
-  function handleStop(id: string) {
-    vessels = vessels.map((v) =>
-      v.id === id ? { ...v, status: "stopped" as VesselStatus, cpu_percent: 0, mem_used_mb: 0 } : v
-    );
+  onMount(() => {
+    fetchVessels();
+    pollInterval = setInterval(fetchVessels, 2000);
+  });
+
+  $effect(() => {
+    if ($activeEngine) {
+      fetchVessels();
+    }
+  });
+
+  onDestroy(() => {
+    if (pollInterval) clearInterval(pollInterval);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Handlers
+  // ---------------------------------------------------------------------------
+  async function handleStart(id: string) {
+    try {
+      await invoke("start_vessel", { id });
+      await fetchVessels();
+    } catch (err) {
+      console.error(err);
+    }
   }
 
-  function handleDelete(id: string) {
-    vessels = vessels.filter((v) => v.id !== id);
+  async function handleStop(id: string) {
+    try {
+      await invoke("stop_vessel", { id });
+      await fetchVessels();
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    try {
+      await invoke("delete_vessel", { id });
+      await fetchVessels();
+    } catch (err) {
+      console.error(err);
+    }
   }
 
   function handleTerminal(id: string) {
@@ -76,7 +90,7 @@
   }
 
   function handleAddVessel() {
-    console.log("Open creation wizard"); // TODO: wizard dialog (Week 2)
+    uiState.isWizardOpen = true;
   }
 
   // ---------------------------------------------------------------------------
