@@ -5,6 +5,7 @@
 /// automatically by `serde`.
 
 mod engine;
+mod vessel;
 
 use engine::{detect_engines, Engine, EngineStatus};
 use tauri::State;
@@ -27,8 +28,15 @@ pub struct AppState {
 /// Probe for available container engines and return their status.
 /// Called once at startup from the Svelte `onMount`.
 #[tauri::command]
-async fn get_engine_status() -> Result<EngineStatus, String> {
-    Ok(detect_engines().await)
+async fn get_engine_status(state: State<'_, AppState>) -> Result<EngineStatus, String> {
+    let status = detect_engines().await;
+    if let Some(engine) = status.active_engine {
+        let mut lock = state.active_engine.lock().await;
+        if lock.is_none() {
+            *lock = Some(engine);
+        }
+    }
+    Ok(status)
 }
 
 /// Switch the active engine.  Frontend passes `"podman"` or `"docker"`.
@@ -53,7 +61,15 @@ pub fn run() {
         .manage(AppState {
             active_engine: Mutex::new(None),
         })
-        .invoke_handler(tauri::generate_handler![get_engine_status, set_engine])
+        .invoke_handler(tauri::generate_handler![
+            get_engine_status, 
+            set_engine, 
+            vessel::create_vessel,
+            vessel::list_vessels,
+            vessel::start_vessel,
+            vessel::stop_vessel,
+            vessel::delete_vessel
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
