@@ -43,5 +43,5 @@
 <CreateVesselWizard 
   isOpen={uiState.isWizardOpen} 
   onClose={() => uiState.isWizardOpen = false} 
-  onSuccess={() => console.log("Vessel created successfully!")} 
+  onSuccess={() => document.dispatchEvent(new CustomEvent('refresh-vessels'))} 
 />

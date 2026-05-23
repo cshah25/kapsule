@@ -52,16 +52,18 @@
   onMount(() => {
     fetchVessels();
     pollInterval = setInterval(fetchVessels, 2000);
+    const handler = () => fetchVessels();
+    document.addEventListener('refresh-vessels', handler);
+    return () => {
+      document.removeEventListener('refresh-vessels', handler);
+      if (pollInterval) clearInterval(pollInterval);
+    };
   });
 
   $effect(() => {
     if ($activeEngine) {
       fetchVessels();
     }
-  });
-
-  onDestroy(() => {
-    if (pollInterval) clearInterval(pollInterval);
   });
 
   // ---------------------------------------------------------------------------
