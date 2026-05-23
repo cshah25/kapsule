@@ -1,5 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { goto } from "$app/navigation";
+  import { uiState } from "$lib/stores/ui.svelte";
 
   let { isOpen, onClose, onSuccess } = $props<{
     isOpen: boolean;
@@ -18,6 +20,25 @@
 
   let isSubmitting = $state(false);
   let errorMsg = $state("");
+  let localImages = $state<string[]>([]);
+  let isImageDropdownOpen = $state(false);
+
+  $effect(() => {
+    if (isOpen) {
+      fetchImages();
+    }
+  });
+
+  async function fetchImages() {
+    try {
+      localImages = await invoke<string[]>("list_local_images");
+      if (localImages.length > 0 && !form.image) {
+        form.image = localImages[0];
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
@@ -96,14 +117,51 @@
             </div>
             
             <div class="space-y-1.5">
-              <label for="vessel-image" class="text-sm font-medium">Container Image</label>
-              <input 
-                id="vessel-image"
-                type="text" 
-                class="kap-input w-full" 
-                placeholder="e.g. node:24-alpine" 
-                bind:value={form.image} 
-              />
+              <label class="text-sm font-medium">Container Image</label>
+              <div class="relative">
+                <button 
+                  type="button"
+                  class="kap-input w-full flex items-center justify-between text-left {isImageDropdownOpen ? 'rounded-b-none border-b-[var(--color-kap-border)]' : ''}" 
+                  onclick={() => isImageDropdownOpen = !isImageDropdownOpen}
+                >
+                  <span class="truncate pr-4">
+                    {#if form.image}
+                      {form.image}
+                    {:else}
+                      <span class="text-[var(--color-kap-muted)]">Select an image...</span>
+                    {/if}
+                  </span>
+                  <svg class="w-4 h-4 text-white/50 shrink-0 transition-transform {isImageDropdownOpen ? 'rotate-180' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+                
+                {#if isImageDropdownOpen}
+                  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+                  <div class="fixed inset-0 z-40" onclick={() => isImageDropdownOpen = false}></div>
+                  
+                  <div class="absolute top-full left-0 right-0 z-50 bg-[var(--color-kap-surface2)] border border-[var(--color-kap-border)] border-t-0 rounded-b-[var(--radius-kap-sm)] shadow-xl max-h-60 overflow-y-auto kap-scrollbar flex flex-col">
+                    {#if localImages.length === 0}
+                      <div class="px-3 py-3 text-sm text-[var(--color-kap-muted)] italic">No local images found</div>
+                    {/if}
+                    {#each localImages as img}
+                      <button 
+                        type="button"
+                        class="px-3 py-2.5 text-sm text-left hover:bg-white/5 transition-colors {form.image === img ? 'bg-white/10' : ''}"
+                        onclick={() => { form.image = img; isImageDropdownOpen = false; }}
+                      >
+                        {img}
+                      </button>
+                    {/each}
+                    <div class="h-px bg-white/10 my-1 mx-2"></div>
+                    <button 
+                      type="button"
+                      class="px-3 py-2.5 text-sm text-left font-semibold text-[var(--color-kap-accent)] hover:bg-[var(--color-kap-accent)]/10 transition-colors"
+                      onclick={() => { isImageDropdownOpen = false; onClose(); goto('/library'); }}
+                    >
+                      + Pull new image from Library...
+                    </button>
+                  </div>
+                {/if}
+              </div>
             </div>
           </div>
         </div>
