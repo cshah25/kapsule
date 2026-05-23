@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use tauri::State;
-use bollard::container::{Config, CreateContainerOptions, ListContainersOptions, StatsOptions, RemoveContainerOptions};
+use tauri::{State, ipc::Channel};
+use bollard::container::{Config, CreateContainerOptions, ListContainersOptions, StatsOptions, RemoveContainerOptions, LogsOptions};
 use bollard::models::{HostConfig, PortBinding};
 use bollard::image::CreateImageOptions;
 use futures_util::StreamExt;
@@ -221,4 +221,38 @@ pub async fn delete_vessel(state: State<'_, AppState>, id: String) -> Result<(),
     let engine = state.active_engine.lock().await.clone().ok_or("No active engine")?;
     let docker = crate::engine::connect(engine).await.ok_or("Failed to connect")?;
     docker.remove_container(&id, Some(RemoveContainerOptions { force: true, ..Default::default() })).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn stream_vessel_logs(
+    state: State<'_, AppState>,
+    id: String,
+    on_message: Channel<String>,
+) -> Result<(), String> {
+    let engine = state.active_engine.lock().await.clone().ok_or("No active engine")?;
+    let docker = crate::engine::connect(engine).await.ok_or("Failed to connect")?;
+
+    tauri::async_runtime::spawn(async move {
+        let mut stream = docker.logs(&id, Some(LogsOptions::<String> {
+            follow: true,
+            stdout: true,
+            stderr: true,
+            tail: "100".to_string(),
+            ..Default::default()
+        }));
+
+        while let Some(log_result) = stream.next().await {
+            match log_result {
+                Ok(log_output) => {
+                    let text = log_output.to_string();
+                    if on_message.send(text).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    Ok(())
 }

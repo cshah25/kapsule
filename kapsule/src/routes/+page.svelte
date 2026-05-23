@@ -7,6 +7,7 @@
    */
   import VesselCard from "$lib/components/VesselCard.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
+  import TerminalOverlay from "$lib/components/TerminalOverlay.svelte";
   import { engineStatus, activeEngine } from "$lib/stores/engine";
   import { uiState } from "$lib/stores/ui.svelte";
   import { invoke } from "@tauri-apps/api/core";
@@ -28,7 +29,10 @@
   }
 
   let vessels = $state<VesselInfo[]>([]);
+  let isLoading = $state(true);
   let pollInterval: ReturnType<typeof setInterval>;
+  let activeTerminalId = $state<string | null>(null);
+  let activeTerminalName = $state<string | null>(null);
 
   async function fetchVessels() {
     if ($activeEngine) {
@@ -36,7 +40,12 @@
         vessels = await invoke<VesselInfo[]>("list_vessels");
       } catch (err) {
         console.error("Failed to fetch vessels:", err);
+      } finally {
+        isLoading = false;
       }
+    } else if ($engineStatus !== null) {
+      // We know engine detection finished but none is selected
+      isLoading = false;
     }
   }
 
@@ -86,7 +95,8 @@
   }
 
   function handleTerminal(id: string) {
-    console.log("Open terminal for", id); // TODO: launch xterm.js overlay (Week 3)
+    activeTerminalId = id;
+    activeTerminalName = vessels.find((v) => v.id === id)?.name || id;
   }
 
   function handleAddVessel() {
@@ -143,7 +153,12 @@
   {/if}
 
   <!-- Vessel grid or empty state -->
-  {#if vessels.length === 0}
+  {#if isLoading}
+    <div class="flex flex-col items-center justify-center h-64 gap-4 animate-fade-in">
+      <div class="w-8 h-8 rounded-full border-2 border-white/10 border-t-[var(--color-kap-accent)] animate-spin"></div>
+      <span class="text-sm text-[var(--color-kap-muted)]">Loading vessels...</span>
+    </div>
+  {:else if vessels.length === 0}
     <EmptyState onAddVessel={handleAddVessel} />
   {:else}
     <div class="grid gap-4"
@@ -160,3 +175,9 @@
     </div>
   {/if}
 </div>
+
+<TerminalOverlay 
+  vesselId={activeTerminalId} 
+  vesselName={activeTerminalName}
+  onClose={() => activeTerminalId = null}
+/>
