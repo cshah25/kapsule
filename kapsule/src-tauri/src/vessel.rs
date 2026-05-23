@@ -147,6 +147,8 @@ pub async fn create_vessel(
         image: Some(payload.image),
         host_config: Some(host_config),
         env: Some(env),
+        tty: Some(true),
+        open_stdin: Some(true),
         ..Default::default()
     };
 
