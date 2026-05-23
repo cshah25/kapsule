@@ -1,0 +1,206 @@
+/* app.css — Kapsule Global Styles
+ *
+ * Tailwind v4 is imported via the @tailwindcss/vite plugin;
+ * custom design tokens are defined here using the @theme directive.
+ * The palette mirrors the Libadwaita dark mode colour spec from the design doc.
+ */
+
+@import "tailwindcss";
+
+/* -----------------------------------------------------------------------
+ * Design tokens (Tailwind v4 @theme)
+ * ----------------------------------------------------------------------- */
+@theme {
+  /* Colour palette — Libadwaita Dark */
+  --color-kap-window:    #242424;
+  --color-kap-surface:   #2d2d2d;
+  --color-kap-surface2:  #333333;
+  --color-kap-border:    #3a3a3a;
+  --color-kap-accent:    #3584e4;
+  --color-kap-accent-h:  #4a97f5;
+  --color-kap-destruct:  #c01c28;
+  --color-kap-destruct-h:#d9202e;
+  --color-kap-success:   #26a269;
+  --color-kap-warning:   #e5a50a;
+  --color-kap-muted:     #8a8a8a;
+  --color-kap-text:      #f0f0f0;
+  --color-kap-text-dim:  #b0b0b0;
+
+  /* Typography */
+  --font-sans: "Inter", system-ui, -apple-system, "Cantarell", sans-serif;
+
+  /* Border radius */
+  --radius-kap: 12px;
+  --radius-kap-sm: 8px;
+  --radius-kap-lg: 16px;
+
+  /* Header bar height */
+  --spacing-headerbar: 48px;
+}
+
+/* -----------------------------------------------------------------------
+ * Base resets
+ * ----------------------------------------------------------------------- */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background-color: var(--color-kap-window);
+  color: var(--color-kap-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-kap-border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-kap-muted);
+}
+
+/* Selection */
+::selection {
+  background: color-mix(in srgb, var(--color-kap-accent) 40%, transparent);
+}
+
+/* -----------------------------------------------------------------------
+ * Utility classes
+ * ----------------------------------------------------------------------- */
+
+/* Card surface */
+.kap-card {
+  background-color: var(--color-kap-surface);
+  border: 1px solid var(--color-kap-border);
+  border-radius: var(--radius-kap);
+}
+
+/* Subtle inset surface (e.g. sidebar items on hover) */
+.kap-surface2 {
+  background-color: var(--color-kap-surface2);
+  border-radius: var(--radius-kap-sm);
+}
+
+/* HeaderBar */
+.kap-headerbar {
+  height: var(--spacing-headerbar);
+  background-color: var(--color-kap-surface);
+  border-bottom: 1px solid var(--color-kap-border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+  /* Tauri drag region */
+  -webkit-app-region: drag;
+}
+.kap-headerbar * {
+  -webkit-app-region: no-drag;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--radius-kap-sm);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+  user-select: none;
+}
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn-primary {
+  background-color: var(--color-kap-accent);
+  color: #fff;
+}
+.btn-primary:hover {
+  background-color: var(--color-kap-accent-h);
+}
+
+.btn-ghost {
+  background-color: transparent;
+  color: var(--color-kap-text-dim);
+}
+.btn-ghost:hover {
+  background-color: var(--color-kap-surface2);
+  color: var(--color-kap-text);
+}
+
+.btn-danger {
+  background-color: var(--color-kap-destruct);
+  color: #fff;
+}
+.btn-danger:hover {
+  background-color: var(--color-kap-destruct-h);
+}
+
+/* Status badge pill */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.badge-running  { background-color: color-mix(in srgb, var(--color-kap-success) 20%, transparent); color: var(--color-kap-success); }
+.badge-stopped  { background-color: color-mix(in srgb, var(--color-kap-muted)   20%, transparent); color: var(--color-kap-muted); }
+.badge-error    { background-color: color-mix(in srgb, var(--color-kap-destruct) 20%, transparent); color: var(--color-kap-destruct); }
+
+/* Micro animations */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fade-in 0.2s ease forwards;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* Input */
+.kap-input {
+  background-color: var(--color-kap-surface2);
+  border: 1px solid var(--color-kap-border);
+  border-radius: var(--radius-kap-sm);
+  color: var(--color-kap-text);
+  padding: 6px 12px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+  width: 100%;
+}
+.kap-input:focus {
+  border-color: var(--color-kap-accent);
+}
+.kap-input::placeholder {
+  color: var(--color-kap-muted);
+}

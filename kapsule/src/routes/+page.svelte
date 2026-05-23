@@ -1,156 +1,162 @@
 <script lang="ts">
+  /**
+   * +page.svelte — Dashboard (Vessels overview)
+   *
+   * Displays a responsive grid of VesselCards.
+   * Uses stub data for Week 1; real container list comes in Week 3.
+   */
+  import VesselCard from "$lib/components/VesselCard.svelte";
+  import EmptyState from "$lib/components/EmptyState.svelte";
+  import { engineStatus, activeEngine } from "$lib/stores/engine";
+  import { uiState } from "$lib/stores/ui.svelte";
   import { invoke } from "@tauri-apps/api/core";
+  import { onMount, onDestroy } from "svelte";
 
-  let name = $state("");
-  let greetMsg = $state("");
+  // ---------------------------------------------------------------------------
+  // Stub vessels for UI development (will be replaced by Tauri invoke in Week 3)
+  // ---------------------------------------------------------------------------
+  type VesselStatus = "running" | "stopped" | "error";
 
-  async function greet(event: Event) {
-    event.preventDefault();
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsg = await invoke("greet", { name });
+  interface VesselInfo {
+    id: string;
+    name: string;
+    image: string;
+    status: VesselStatus;
+    cpu_percent: number;
+    mem_used_mb: number;
+    mem_limit_mb: number;
   }
+
+  let vessels = $state<VesselInfo[]>([]);
+  let pollInterval: ReturnType<typeof setInterval>;
+
+  async function fetchVessels() {
+    if ($activeEngine) {
+      try {
+        vessels = await invoke<VesselInfo[]>("list_vessels");
+      } catch (err) {
+        console.error("Failed to fetch vessels:", err);
+      }
+    }
+  }
+
+  onMount(() => {
+    fetchVessels();
+    pollInterval = setInterval(fetchVessels, 2000);
+  });
+
+  $effect(() => {
+    if ($activeEngine) {
+      fetchVessels();
+    }
+  });
+
+  onDestroy(() => {
+    if (pollInterval) clearInterval(pollInterval);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Handlers
+  // ---------------------------------------------------------------------------
+  async function handleStart(id: string) {
+    try {
+      await invoke("start_vessel", { id });
+      await fetchVessels();
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleStop(id: string) {
+    try {
+      await invoke("stop_vessel", { id });
+      await fetchVessels();
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    try {
+      await invoke("delete_vessel", { id });
+      await fetchVessels();
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function handleTerminal(id: string) {
+    console.log("Open terminal for", id); // TODO: launch xterm.js overlay (Week 3)
+  }
+
+  function handleAddVessel() {
+    uiState.isWizardOpen = true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Derived counts for the stats bar
+  // ---------------------------------------------------------------------------
+  const runningCount = $derived(vessels.filter((v) => v.status === "running").length);
+  const stoppedCount = $derived(vessels.filter((v) => v.status === "stopped").length);
 </script>
 
-<main class="container">
-  <h1>Welcome to Tauri + Svelte</h1>
+<svelte:head>
+  <title>Vessels — Kapsule</title>
+</svelte:head>
 
-  <div class="row">
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
-    </a>
-    <a href="https://tauri.app" target="_blank">
-      <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank">
-      <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
-    </a>
+<div class="flex flex-col gap-6 animate-fade-in">
+  <!-- Page header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-lg font-semibold">Vessels</h1>
+      <p class="text-xs text-[var(--color-kap-muted)] mt-0.5">
+        {#if $activeEngine}
+          Engine: <span class="capitalize font-medium text-[var(--color-kap-accent)]">{$activeEngine}</span>
+          {#if $activeEngine === "podman"}
+            · rootless
+          {/if}
+        {:else}
+          No engine detected — is Podman or Docker running?
+        {/if}
+      </p>
+    </div>
+
+    <!-- Stats pills -->
+    <div class="flex items-center gap-2">
+      <span class="badge badge-running">{runningCount} running</span>
+      <span class="badge badge-stopped">{stoppedCount} stopped</span>
+    </div>
   </div>
-  <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
 
-  <form class="row" onsubmit={greet}>
-    <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
-    <button type="submit">Greet</button>
-  </form>
-  <p>{greetMsg}</p>
-</main>
+  <!-- Engine warning banner -->
+  {#if !$activeEngine && $engineStatus !== null}
+    <div class="kap-card p-3 flex items-center gap-3 border-[var(--color-kap-warning)]"
+         style="border-color: var(--color-kap-warning); background: color-mix(in srgb, var(--color-kap-warning) 8%, var(--color-kap-surface));">
+      <svg class="w-4 h-4 shrink-0 text-[var(--color-kap-warning)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+      <p class="text-xs text-[var(--color-kap-warning)]">
+        Neither Podman nor Docker was detected. Start a container engine to manage vessels.
+      </p>
+    </div>
+  {/if}
 
-<style>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.svelte-kit:hover {
-  filter: drop-shadow(0 0 2em #ff3e00);
-}
-
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
-}
-
-</style>
+  <!-- Vessel grid or empty state -->
+  {#if vessels.length === 0}
+    <EmptyState onAddVessel={handleAddVessel} />
+  {:else}
+    <div class="grid gap-4"
+         style="grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));">
+      {#each vessels as vessel (vessel.id)}
+        <VesselCard
+          {vessel}
+          onStart={handleStart}
+          onStop={handleStop}
+          onDelete={handleDelete}
+          onTerminal={handleTerminal}
+        />
+      {/each}
+    </div>
+  {/if}
+</div>

@@ -12,9 +12,13 @@
   "app": {
     "windows": [
       {
-        "title": "kapsule",
-        "width": 800,
-        "height": 600
+        "title": "Kapsule",
+        "width": 1100,
+        "height": 700,
+        "minWidth": 800,
+        "minHeight": 500,
+        "decorations": false,
+        "transparent": false
       }
     ],
     "security": {

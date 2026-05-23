@@ -22,13 +22,17 @@ RUN pacman -Syu --noconfirm && \
     mesa \
     libx11
 
-# Initialize Rust
-RUN rustup default stable
-
 # Create a non-root user (important for Tauri and security)
 RUN useradd -m developer && \
     echo "developer ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 USER developer
+
+# Initialize Rust as the developer user so the toolchain lands in /home/developer/.rustup
+ENV CARGO_HOME=/home/developer/.cargo
+ENV RUSTUP_HOME=/home/developer/.rustup
+ENV PATH=/home/developer/.cargo/bin:$PATH
+RUN rustup default stable
+
 WORKDIR /home/developer/app
 
 # Set environment variables for GUI
