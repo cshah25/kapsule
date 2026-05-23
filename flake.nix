@@ -33,13 +33,31 @@
     ];
   in
   {
-    packages.${system}.default = pkgs.appimageTools.wrapType2 {
-      name = "kapsule";
+    packages.${system}.default = pkgs.stdenv.mkDerivation {
+      pname = "kapsule";
+      version = "0.1.0";
+      
       src = pkgs.fetchurl {
-        url = "https://github.com/cshah25/kapsule/releases/download/main/kapsule_0.1.0_amd64.AppImage";
-        sha256 = "06wr1czf48z5j49rfq3m8zczxv1g68cn50ksp7bpvmm12nch01yi";
+        url = "https://github.com/cshah25/kapsule/releases/download/v1.1.2/kapsule_0.1.0_amd64.deb";
+        sha256 = "1ylpv0j42j8cwljbh9n18bix6416swnm5wn9jvq3h3bwql1shhmd";
       };
-      extraPkgs = pkgs: with pkgs; [ webkitgtk_4_1 gtk3 ];
+
+      nativeBuildInputs = [
+        pkgs.autoPatchelfHook
+        pkgs.dpkg
+        pkgs.wrapGAppsHook3
+      ];
+
+      buildInputs = packages ++ libraries;
+
+      unpackPhase = ''
+        dpkg-deb -x $src .
+      '';
+
+      installPhase = ''
+        mkdir -p $out
+        cp -r usr/* $out/
+      '';
     };
 
     devShells.${system}.default = pkgs.mkShell {
