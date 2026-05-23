@@ -12,6 +12,7 @@
   import HeaderBar from "$lib/components/HeaderBar.svelte";
   import Sidebar from "$lib/components/Sidebar.svelte";
   import CreateVesselWizard from "$lib/components/CreateVesselWizard.svelte";
+  import Toaster from "$lib/components/Toaster.svelte";
   import { detectEngines } from "$lib/stores/engine";
   import { uiState } from "$lib/stores/ui.svelte";
 
@@ -37,6 +38,7 @@
     </main>
   </div>
 </div>
+<Toaster />
 
 <CreateVesselWizard 
   isOpen={uiState.isWizardOpen} 
