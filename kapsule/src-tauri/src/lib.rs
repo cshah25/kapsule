@@ -68,7 +68,8 @@ pub fn run() {
             vessel::list_vessels,
             vessel::start_vessel,
             vessel::stop_vessel,
-            vessel::delete_vessel
+            vessel::delete_vessel,
+            vessel::stream_vessel_logs
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
