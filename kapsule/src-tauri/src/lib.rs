@@ -7,6 +7,7 @@
 mod engine;
 mod vessel;
 mod library;
+mod desktop;
 
 use engine::{detect_engines, Engine, EngineStatus};
 use tauri::State;
@@ -74,7 +75,8 @@ pub fn run() {
             vessel::list_local_images,
             library::search_images,
             library::get_image_tags,
-            library::pull_image
+            library::pull_image,
+            desktop::generate_desktop_entry
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

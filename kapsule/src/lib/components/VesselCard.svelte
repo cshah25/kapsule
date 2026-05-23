@@ -28,7 +28,23 @@
     onTerminal?: (id: string) => void;
   }
 
+  import { invoke } from "@tauri-apps/api/core";
+  import { toast } from "$lib/stores/toast.svelte";
   let { vessel, onStart, onStop, onDelete, onTerminal }: Props = $props();
+
+  async function addToDesktop() {
+    try {
+      await invoke("generate_desktop_entry", {
+        payload: {
+          vessel_name: vessel.name,
+          icon_path: null
+        }
+      });
+      toast.success(`Created desktop shortcut for ${vessel.name}`);
+    } catch (e: any) {
+      toast.error(`Failed to create shortcut: ${e.toString()}`);
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // SVG arc meter helpers
@@ -164,6 +180,14 @@
         <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>
         <path d="M9 6V4h6v2"/>
       </svg>
+    </button>
+    <button
+      id="btn-desktop-{vessel.id}"
+      class="btn btn-ghost text-xs py-1 px-2 hover:text-[var(--color-kap-accent)]"
+      onclick={addToDesktop}
+      title="Add to Desktop"
+    >
+      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
     </button>
   </div>
 </article>
