@@ -204,3 +204,8 @@ html, body {
 .kap-input::placeholder {
   color: var(--color-kap-muted);
 }
+select.kap-input option {
+  background-color: var(--color-kap-surface2);
+  color: var(--color-kap-text);
+  padding: 8px;
+}

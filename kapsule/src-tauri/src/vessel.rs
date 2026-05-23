@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{State, ipc::Channel};
 use bollard::container::{Config, CreateContainerOptions, ListContainersOptions, StatsOptions, RemoveContainerOptions, LogsOptions};
 use bollard::models::{HostConfig, PortBinding};
-use bollard::image::CreateImageOptions;
+use bollard::image::{CreateImageOptions, ListImagesOptions};
 use futures_util::StreamExt;
 use std::collections::HashMap;
 
@@ -255,4 +255,27 @@ pub async fn stream_vessel_logs(
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn list_local_images(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let engine = state.active_engine.lock().await.clone().ok_or("No active engine")?;
+    let docker = crate::engine::connect(engine).await.ok_or("Failed to connect")?;
+
+    let images = docker.list_images(Some(ListImagesOptions::<String> {
+        all: false,
+        ..Default::default()
+    })).await.map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for img in images {
+        for tag in img.repo_tags {
+            if tag != "<none>:<none>" {
+                result.push(tag);
+            }
+        }
+    }
+    result.sort();
+    result.dedup();
+    Ok(result)
 }

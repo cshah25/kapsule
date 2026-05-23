@@ -6,6 +6,7 @@
 
 mod engine;
 mod vessel;
+mod library;
 
 use engine::{detect_engines, Engine, EngineStatus};
 use tauri::State;
@@ -69,7 +70,11 @@ pub fn run() {
             vessel::start_vessel,
             vessel::stop_vessel,
             vessel::delete_vessel,
-            vessel::stream_vessel_logs
+            vessel::stream_vessel_logs,
+            vessel::list_local_images,
+            library::search_images,
+            library::get_image_tags,
+            library::pull_image
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
