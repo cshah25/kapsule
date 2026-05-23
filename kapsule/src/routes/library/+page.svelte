@@ -10,8 +10,11 @@
   }
 
   interface PullProgress {
+    id?: string;
     status: string;
     progress: string;
+    current?: number;
+    total?: number;
   }
 
   let query = $state("");
@@ -22,9 +25,17 @@
   let loadingTags = $state(false);
   let tags = $state<string[]>([]);
   let selectedTag = $state<string>("latest");
+  let isTagDropdownOpen = $state(false);
   
   let pulling = $state(false);
   let pullLog = $state<PullProgress[]>([]);
+  let layers = $state<Record<string, { current: number, total: number }>>({});
+  let logContainer = $state<HTMLDivElement | undefined>();
+  let forceComplete = $state(false);
+
+  let totalBytes = $derived(Object.values(layers).reduce((acc, l) => acc + l.total, 0));
+  let currentBytes = $derived(Object.values(layers).reduce((acc, l) => acc + l.current, 0));
+  let progressPercent = $derived(forceComplete ? 100 : (totalBytes > 0 ? (currentBytes / totalBytes) * 100 : 0));
 
   let debounceTimer: ReturnType<typeof setTimeout>;
 
@@ -95,17 +106,29 @@
   async function handlePull() {
     if (!selectedImage) return;
     pulling = true;
+    forceComplete = false;
     pullLog = [];
+    layers = {};
     
     const channel = new Channel<PullProgress>();
     channel.onmessage = (msg) => {
       if (msg.status === "Done") {
         pulling = false;
+        forceComplete = true;
         return;
       }
+      
+      if (msg.id && msg.total && msg.status === "Downloading") {
+        layers[msg.id] = { current: msg.current || 0, total: msg.total };
+      }
+      
       pullLog = [...pullLog, msg];
-      // Keep only last 10 logs so it doesn't flood UI
-      if (pullLog.length > 10) pullLog = pullLog.slice(pullLog.length - 10);
+      // Keep only last 200 logs so it doesn't flood UI
+      if (pullLog.length > 200) pullLog = pullLog.slice(pullLog.length - 200);
+      
+      setTimeout(() => {
+        if (logContainer) logContainer.scrollTop = logContainer.scrollHeight;
+      }, 10);
     };
 
     const imageToPull = `${selectedImage}:${selectedTag}`;
@@ -197,11 +220,33 @@
               Loading tags...
             </div>
           {:else}
-            <select class="kap-input text-sm" bind:value={selectedTag} disabled={pulling}>
-              {#each tags as tag}
-                <option value={tag}>{tag}</option>
-              {/each}
-            </select>
+            <div class="relative">
+              <button 
+                type="button"
+                class="kap-input w-full flex items-center justify-between text-left {isTagDropdownOpen ? 'rounded-b-none border-b-[var(--color-kap-border)]' : ''}" 
+                onclick={() => isTagDropdownOpen = !isTagDropdownOpen}
+                disabled={pulling}
+              >
+                <span class="truncate pr-4">{selectedTag}</span>
+                <svg class="w-4 h-4 text-white/50 shrink-0 transition-transform {isTagDropdownOpen ? 'rotate-180' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              
+              {#if isTagDropdownOpen}
+                <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+                <div class="fixed inset-0 z-40" onclick={() => isTagDropdownOpen = false}></div>
+                <div class="absolute top-full left-0 right-0 z-50 bg-[var(--color-kap-surface2)] border border-[var(--color-kap-border)] border-t-0 rounded-b-[var(--radius-kap-sm)] shadow-xl max-h-60 overflow-y-auto kap-scrollbar flex flex-col">
+                  {#each tags as tag}
+                    <button 
+                      type="button"
+                      class="px-3 py-2 text-sm text-left hover:bg-white/5 {selectedTag === tag ? 'bg-white/10' : ''}"
+                      onclick={() => { selectedTag = tag; isTagDropdownOpen = false; }}
+                    >
+                      {tag}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
           {/if}
         </div>
 
@@ -215,10 +260,23 @@
 
         {#if pulling || pullLog.length > 0}
           <div class="flex flex-col gap-2 mt-2">
-            <span class="text-xs font-semibold uppercase tracking-wider text-[var(--color-kap-muted)]">Pull Progress</span>
-            <div class="bg-[var(--color-kap-window)] rounded-md p-3 font-mono text-[10px] text-[var(--color-kap-muted)] flex flex-col gap-1 overflow-hidden h-32">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold uppercase tracking-wider text-[var(--color-kap-muted)] shrink-0">Pull Progress</span>
+              {#if pulling || progressPercent > 0}
+                <span class="text-xs font-mono text-[var(--color-kap-muted)]">{Math.round(progressPercent)}%</span>
+              {/if}
+            </div>
+            
+            <div class="h-1.5 w-full bg-black/40 rounded-full overflow-hidden border border-black/20">
+              <div 
+                class="h-full bg-[var(--color-kap-accent)] transition-all duration-300"
+                style="width: {progressPercent}%"
+              ></div>
+            </div>
+
+            <div bind:this={logContainer} class="bg-[var(--color-kap-window)] rounded-md p-3 font-mono text-[10px] text-[var(--color-kap-muted)] flex flex-col gap-1 overflow-y-auto kap-scrollbar h-64">
               {#each pullLog as log}
-                <div class="whitespace-nowrap overflow-hidden text-ellipsis">
+                <div class="whitespace-nowrap overflow-hidden text-ellipsis shrink-0">
                   <span class="text-white/80">{log.status}</span> {log.progress}
                 </div>
               {/each}

@@ -95,8 +95,11 @@ pub async fn get_image_tags(image: String) -> Result<Vec<String>, String> {
 
 #[derive(Serialize, Clone)]
 pub struct PullProgress {
+    pub id: Option<String>,
     pub status: String,
     pub progress: String,
+    pub current: Option<i64>,
+    pub total: Option<i64>,
 }
 
 #[tauri::command]
@@ -117,20 +120,26 @@ pub async fn pull_image(
         while let Some(info_result) = stream.next().await {
             match info_result {
                 Ok(info) => {
-                    let status = info.status.unwrap_or_default();
-                    let progress = info.progress.unwrap_or_default();
-                    if on_message.send(PullProgress { status, progress }).is_err() {
+                    let id = info.id.clone();
+                    let status = info.status.clone().unwrap_or_default();
+                    let progress = info.progress.clone().unwrap_or_default();
+                    let (mut current, mut total) = (None, None);
+                    if let Some(detail) = info.progress_detail {
+                        current = detail.current;
+                        total = detail.total;
+                    }
+                    if on_message.send(PullProgress { id, status, progress, current, total }).is_err() {
                         break;
                     }
                 }
                 Err(e) => {
-                    let _ = on_message.send(PullProgress { status: format!("Error: {}", e), progress: "".to_string() });
+                    let _ = on_message.send(PullProgress { id: None, status: format!("Error: {}", e), progress: "".to_string(), current: None, total: None });
                     break;
                 }
             }
         }
         
-        let _ = on_message.send(PullProgress { status: "Done".to_string(), progress: "".to_string() });
+        let _ = on_message.send(PullProgress { id: None, status: "Done".to_string(), progress: "".to_string(), current: None, total: None });
     });
 
     Ok(())
