@@ -14,6 +14,8 @@
     image: "",
     isolated_home: true,
     volatile: false,
+    disable_network: false,
+    env_vars: [] as { key: string; value: string }[],
     ports: [] as { host: number; container: number }[],
     mounts: [] as { host_path: string; container_path: string; read_only: boolean }[],
   });
@@ -75,6 +77,14 @@
 
   function removeMount(index: number) {
     form.mounts.splice(index, 1);
+  }
+
+  function addEnv() {
+    form.env_vars.push({ key: "", value: "" });
+  }
+
+  function removeEnv(index: number) {
+    form.env_vars.splice(index, 1);
   }
 </script>
 
@@ -191,6 +201,41 @@
                 <div class="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-kap-accent)]"></div>
               </label>
             </div>
+            
+            <div class="p-4 flex items-center justify-between">
+              <div>
+                <p class="font-medium text-sm text-[var(--color-kap-destruct)]">Air-Gap (Disable Network)</p>
+                <p class="text-xs text-white/50 mt-0.5">Run without any internet or host network access.</p>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" bind:checked={form.disable_network} class="sr-only peer">
+                <div class="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-kap-destruct)]"></div>
+              </label>
+            </div>
+          </div>
+        </div>
+        
+        <div class="space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold uppercase tracking-wider text-white/50">Environment Variables</h3>
+            <button class="text-xs text-[var(--color-kap-accent)] hover:underline" onclick={addEnv}>+ Add Env Var</button>
+          </div>
+          
+          {#if form.env_vars.length === 0}
+            <p class="text-xs text-white/40 italic">Host environment variables are automatically scrubbed.</p>
+          {/if}
+          
+          <div class="space-y-2">
+            {#each form.env_vars as env, i}
+              <div class="flex items-center gap-2">
+                <input type="text" class="kap-input flex-1 text-sm" placeholder="KEY (e.g. NODE_ENV)" bind:value={env.key} />
+                <span class="text-white/50">=</span>
+                <input type="text" class="kap-input flex-1 text-sm" placeholder="Value" bind:value={env.value} />
+                <button aria-label="Remove env var" class="btn btn-ghost text-red-400 hover:bg-red-400/10 p-2" onclick={() => removeEnv(i)}>
+                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+            {/each}
           </div>
         </div>
 

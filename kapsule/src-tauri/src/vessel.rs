@@ -22,11 +22,19 @@ pub struct MountMapping {
 }
 
 #[derive(Deserialize, Debug)]
+pub struct EnvVar {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Deserialize, Debug)]
 pub struct CreateVesselPayload {
     pub name: String,
     pub image: String,
     pub isolated_home: bool,
     pub volatile: bool,
+    pub disable_network: bool,
+    pub env_vars: Vec<EnvVar>,
     pub ports: Vec<PortMapping>,
     pub mounts: Vec<MountMapping>,
 }
@@ -107,16 +115,38 @@ pub async fn create_vessel(
     }
 
     // 4. Create and start container
+    let mut env = vec![];
+    for var in payload.env_vars {
+        if !var.key.is_empty() {
+            env.push(format!("{}={}", var.key, var.value));
+        }
+    }
+
+    let network_mode = if payload.disable_network {
+        Some("none".to_string())
+    } else {
+        None
+    };
+
+    let userns_mode = if engine == crate::engine::Engine::Podman {
+        Some("keep-id".to_string())
+    } else {
+        None
+    };
+
     let host_config = HostConfig {
         binds: Some(binds),
         port_bindings: Some(port_bindings),
         auto_remove: Some(payload.volatile),
+        network_mode,
+        userns_mode,
         ..Default::default()
     };
 
     let config = Config {
         image: Some(payload.image),
         host_config: Some(host_config),
+        env: Some(env),
         ..Default::default()
     };
 
