@@ -42,3 +42,33 @@ jobs:
           releaseBody: 'Download the AppImage below to run Kapsule on Linux!'
           releaseDraft: false
           prerelease: false
+
+      - name: Auto-update Nix Flake
+        run: |
+          APPIMAGE=$(find kapsule/src-tauri/target/release/bundle/appimage -name "*.AppImage" | head -n 1)
+          if [ -z "$APPIMAGE" ]; then
+            echo "AppImage not found!"
+            exit 1
+          fi
+          
+          # Generate SRI Hash natively using OpenSSL
+          HASH=$(openssl dgst -sha256 -binary "$APPIMAGE" | openssl base64 -A)
+          SRI_HASH="sha256-${HASH}"
+          
+          # Construct the new download URL
+          NEW_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$(basename "$APPIMAGE")"
+          
+          # Switch to main branch to avoid detached HEAD
+          git fetch origin main
+          git checkout main
+          
+          # Update flake.nix (sed is running on the GitHub Runner, not your local machine)
+          sed -i "s|url = \".*AppImage\";|url = \"${NEW_URL}\";|g" flake.nix
+          sed -i "s|sha256 = \".*\";|sha256 = \"${SRI_HASH}\";|g" flake.nix
+          
+          # Commit and Push back to main
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add flake.nix
+          git commit -m "chore: auto-update flake.nix for ${{ github.ref_name }} [skip ci]" || echo "No changes to commit"
+          git push origin main

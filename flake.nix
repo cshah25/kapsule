@@ -33,6 +33,15 @@
     ];
   in
   {
+    packages.${system}.default = pkgs.appimageTools.wrapType2 {
+      name = "kapsule";
+      src = pkgs.fetchurl {
+        url = "https://github.com/cshah25/kapsule/releases/download/main/kapsule_0.1.0_amd64.AppImage";
+        sha256 = "06wr1czf48z5j49rfq3m8zczxv1g68cn50ksp7bpvmm12nch01yi";
+      };
+      extraPkgs = pkgs: with pkgs; [ webkitgtk_4_1 gtk3 ];
+    };
+
     devShells.${system}.default = pkgs.mkShell {
       buildInputs = packages;
 
