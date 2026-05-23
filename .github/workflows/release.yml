@@ -59,7 +59,7 @@ jobs:
           NEW_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$(basename "$APPIMAGE")"
           
           # Switch to main branch to avoid detached HEAD
-          git fetch origin main
+          git fetch origin main:main
           git checkout main
           
           # Update flake.nix (sed is running on the GitHub Runner, not your local machine)
