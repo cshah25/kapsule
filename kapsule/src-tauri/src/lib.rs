@@ -42,11 +42,17 @@ async fn get_engine_status(state: State<'_, AppState>) -> Result<EngineStatus, S
 }
 
 /// Switch the active engine.  Frontend passes `"podman"` or `"docker"`.
+/// Verifies the engine is actually reachable before committing the switch.
 #[tauri::command]
 async fn set_engine(
     state: State<'_, AppState>,
     engine: Engine,
 ) -> Result<(), String> {
+    // Verify the requested engine is actually reachable
+    let _docker = engine::connect(engine)
+        .await
+        .ok_or_else(|| format!("{:?} is not reachable — is the daemon running?", engine))?;
+
     let mut lock = state.active_engine.lock().await;
     *lock = Some(engine);
     Ok(())

@@ -20,6 +20,7 @@ export interface EngineStatus {
   podman_socket: string | null;
   docker_socket: string | null;
   active_engine: Engine | null;
+  diagnostics: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -54,10 +55,16 @@ export async function detectEngines(): Promise<void> {
   }
 }
 
-/** Switch the active engine both in Rust state and in the Svelte store. */
-export async function switchEngine(engine: Engine): Promise<void> {
-  await invoke("set_engine", { engine });
-  engineStatus.update((s) =>
-    s ? { ...s, active_engine: engine } : s
-  );
+/** Switch the active engine both in Rust state and in the Svelte store.
+ *  Returns an error message string if the switch fails, or null on success. */
+export async function switchEngine(engine: Engine): Promise<string | null> {
+  try {
+    await invoke("set_engine", { engine });
+    engineStatus.update((s) =>
+      s ? { ...s, active_engine: engine } : s
+    );
+    return null;
+  } catch (err) {
+    return String(err);
+  }
 }
