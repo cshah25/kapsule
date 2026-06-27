@@ -6,11 +6,27 @@
    *  - App title (centered)
    *  - Engine toggle (Podman / Docker) on the left
    *  - Global action buttons on the right (Add Vessel, Search)
+   *  - Window controls (minimize, maximize, close)
    */
   import { engineStatus, activeEngine, switchEngine, engineLoading } from "$lib/stores/engine";
   import type { Engine } from "$lib/stores/engine";
   import { uiState } from "$lib/stores/ui.svelte";
   import { toast } from "$lib/stores/toast.svelte";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+
+  const appWindow = getCurrentWindow();
+
+  let isMaximized = $state(false);
+
+  // Check initial maximized state and listen for changes
+  import { onMount } from "svelte";
+  onMount(async () => {
+    isMaximized = await appWindow.isMaximized();
+    const unlisten = await appWindow.onResized(async () => {
+      isMaximized = await appWindow.isMaximized();
+    });
+    return () => unlisten();
+  });
 
   interface Props {
     onAddVessel?: () => void;
@@ -19,7 +35,10 @@
   let { onAddVessel }: Props = $props();
 
   async function toggle(engine: Engine) {
-    await switchEngine(engine);
+    const err = await switchEngine(engine);
+    if (err) {
+      toast.error(`Failed to switch to ${engine}: ${err}`);
+    }
   }
 </script>
 
@@ -86,5 +105,76 @@
       New Vessel
     </button>
 
+    <!-- Window controls separator -->
+    <div class="w-px h-5 bg-[var(--color-kap-border)] ml-2"></div>
+
+    <!-- Minimize -->
+    <button
+      id="btn-window-minimize"
+      class="window-control"
+      onclick={() => appWindow.minimize()}
+      title="Minimize"
+    >
+      <svg width="12" height="12" viewBox="0 0 12 12">
+        <rect x="2" y="5.5" width="8" height="1" fill="currentColor" rx="0.5" />
+      </svg>
+    </button>
+
+    <!-- Maximize / Restore -->
+    <button
+      id="btn-window-maximize"
+      class="window-control"
+      onclick={() => appWindow.toggleMaximize()}
+      title={isMaximized ? "Restore" : "Maximize"}
+    >
+      {#if isMaximized}
+        <!-- Restore icon (two overlapping rectangles) -->
+        <svg width="12" height="12" viewBox="0 0 12 12">
+          <rect x="3" y="3" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1" rx="0.5" />
+          <path d="M4.5 3V2h6v6h-1" fill="none" stroke="currentColor" stroke-width="1" />
+        </svg>
+      {:else}
+        <!-- Maximize icon -->
+        <svg width="12" height="12" viewBox="0 0 12 12">
+          <rect x="2" y="2" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.2" rx="0.5" />
+        </svg>
+      {/if}
+    </button>
+
+    <!-- Close -->
+    <button
+      id="btn-window-close"
+      class="window-control window-control-close"
+      onclick={() => appWindow.close()}
+      title="Close"
+    >
+      <svg width="12" height="12" viewBox="0 0 12 12">
+        <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+      </svg>
+    </button>
   </div>
 </header>
+
+<style>
+  .window-control {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: var(--color-kap-text-dim);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .window-control:hover {
+    background-color: var(--color-kap-surface2);
+    color: var(--color-kap-text);
+  }
+  .window-control-close:hover {
+    background-color: var(--color-kap-destruct);
+    color: #fff;
+  }
+</style>
