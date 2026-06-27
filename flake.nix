@@ -38,8 +38,8 @@
       version = "0.1.0";
       
       src = pkgs.fetchurl {
-        url = "https://github.com/cshah25/kapsule/releases/download/v2.0.0/kapsule_0.1.0_amd64.deb";
-        sha256 = "sha256-iDVLFHuKdZvGCII99GGa48l5n2BpYKBOxNIpV7TBFPI=";
+        url = "https://github.com/cshah25/kapsule/releases/download/v2.0.1/kapsule_2.0.1_amd64.deb";
+        sha256 = "sha256-qHtKLUEbFUoHyqmXsxWqvWavwC3kOudikhbOb8HE8xI=";
       };
 
       nativeBuildInputs = [
