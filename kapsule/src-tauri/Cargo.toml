@@ -1,6 +1,6 @@
 [package]
 name = "kapsule"
-version = "0.1.0"
+version = "2.0.1"
 description = "A security-first container management tool for Linux"
 authors = ["Rayu"]
 edition = "2021"
