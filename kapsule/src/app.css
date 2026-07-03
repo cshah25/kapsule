@@ -104,10 +104,16 @@ html, body {
   align-items: center;
   padding: 0 16px;
   gap: 12px;
-  /* Tauri drag region */
+  /* Tauri drag region — allows window movement by dragging the header */
   -webkit-app-region: drag;
 }
-.kap-headerbar * {
+/* Only exclude interactive elements from the drag region */
+.kap-headerbar button,
+.kap-headerbar input,
+.kap-headerbar select,
+.kap-headerbar a,
+.kap-headerbar [role="menu"],
+.kap-headerbar .no-drag {
   -webkit-app-region: no-drag;
 }
 
