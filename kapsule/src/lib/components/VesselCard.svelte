@@ -6,19 +6,10 @@
    *  - Name, image tag, status badge
    *  - Real-time CPU/RAM meters (animated SVG arcs)
    *  - Action buttons: Start/Stop, Terminal, Delete
-   *
-   * Props are typed to match the future Rust `VesselInfo` struct output.
    */
-
-  interface VesselInfo {
-    id: string;
-    name: string;
-    image: string;
-    status: "running" | "stopped" | "error";
-    cpu_percent: number;   // 0–100
-    mem_used_mb: number;
-    mem_limit_mb: number;
-  }
+  import type { VesselInfo } from "$lib/types";
+  import { invoke } from "@tauri-apps/api/core";
+  import { toast } from "$lib/stores/toast.svelte";
 
   interface Props {
     vessel: VesselInfo;
@@ -28,8 +19,6 @@
     onTerminal?: (id: string) => void;
   }
 
-  import { invoke } from "@tauri-apps/api/core";
-  import { toast } from "$lib/stores/toast.svelte";
   let { vessel, onStart, onStop, onDelete, onTerminal }: Props = $props();
 
   async function addToDesktop() {
@@ -56,6 +45,12 @@
     const clamped = Math.max(0, Math.min(100, percent));
     const dash = (clamped / 100) * C;
     return `stroke-dasharray: ${dash} ${C}; stroke: ${color};`;
+  }
+
+  /** Format memory values for display */
+  function formatMem(mb: number): string {
+    if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+    return `${mb.toFixed(1)} MB`;
   }
 
   const cpuStyle = $derived(arcStyle(vessel.cpu_percent, "var(--color-kap-accent)"));
@@ -129,8 +124,8 @@
 
       <!-- RAM text -->
       <div class="flex flex-col gap-0.5 text-xs text-[var(--color-kap-muted)]">
-        <span>{vessel.mem_used_mb} MB</span>
-        <span>/ {vessel.mem_limit_mb} MB</span>
+        <span>{formatMem(vessel.mem_used_mb)}</span>
+        <span>/ {formatMem(vessel.mem_limit_mb)}</span>
       </div>
     </div>
   {:else}

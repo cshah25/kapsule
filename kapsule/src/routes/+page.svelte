@@ -3,36 +3,26 @@
    * +page.svelte — Dashboard (Vessels overview)
    *
    * Displays a responsive grid of VesselCards.
-   * Uses stub data for Week 1; real container list comes in Week 3.
    */
+  import type { VesselInfo } from "$lib/types";
   import VesselCard from "$lib/components/VesselCard.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import TerminalOverlay from "$lib/components/TerminalOverlay.svelte";
   import { engineStatus, activeEngine } from "$lib/stores/engine";
   import { uiState } from "$lib/stores/ui.svelte";
+  import { toast } from "$lib/stores/toast.svelte";
   import { invoke } from "@tauri-apps/api/core";
-  import { onMount, onDestroy } from "svelte";
-
-  // ---------------------------------------------------------------------------
-  // Stub vessels for UI development (will be replaced by Tauri invoke in Week 3)
-  // ---------------------------------------------------------------------------
-  type VesselStatus = "running" | "stopped" | "error";
-
-  interface VesselInfo {
-    id: string;
-    name: string;
-    image: string;
-    status: VesselStatus;
-    cpu_percent: number;
-    mem_used_mb: number;
-    mem_limit_mb: number;
-  }
+  import { onMount } from "svelte";
 
   let vessels = $state<VesselInfo[]>([]);
   let isLoading = $state(true);
   let pollInterval: ReturnType<typeof setInterval>;
   let activeTerminalId = $state<string | null>(null);
   let activeTerminalName = $state<string | null>(null);
+
+  // Delete confirmation state
+  let pendingDeleteId = $state<string | null>(null);
+  let pendingDeleteName = $state<string | null>(null);
 
   async function fetchVessels() {
     if ($activeEngine) {
@@ -51,7 +41,7 @@
 
   onMount(() => {
     fetchVessels();
-    pollInterval = setInterval(fetchVessels, 2000);
+    pollInterval = setInterval(fetchVessels, 3000);
     const handler = () => fetchVessels();
     document.addEventListener('refresh-vessels', handler);
     return () => {
@@ -72,28 +62,46 @@
   async function handleStart(id: string) {
     try {
       await invoke("start_vessel", { id });
+      toast.success("Vessel started");
       await fetchVessels();
     } catch (err) {
-      console.error(err);
+      toast.error(`Failed to start: ${err}`);
     }
   }
 
   async function handleStop(id: string) {
     try {
       await invoke("stop_vessel", { id });
+      toast.success("Vessel stopped");
       await fetchVessels();
     } catch (err) {
-      console.error(err);
+      toast.error(`Failed to stop: ${err}`);
     }
   }
 
-  async function handleDelete(id: string) {
+  function handleDeleteRequest(id: string) {
+    const vessel = vessels.find(v => v.id === id);
+    pendingDeleteId = id;
+    pendingDeleteName = vessel?.name || id.slice(0, 12);
+  }
+
+  async function confirmDelete() {
+    if (!pendingDeleteId) return;
+    const id = pendingDeleteId;
+    pendingDeleteId = null;
+    pendingDeleteName = null;
     try {
       await invoke("delete_vessel", { id });
+      toast.success("Vessel deleted");
       await fetchVessels();
     } catch (err) {
-      console.error(err);
+      toast.error(`Failed to delete: ${err}`);
     }
+  }
+
+  function cancelDelete() {
+    pendingDeleteId = null;
+    pendingDeleteName = null;
   }
 
   function handleTerminal(id: string) {
@@ -186,13 +194,41 @@
           {vessel}
           onStart={handleStart}
           onStop={handleStop}
-          onDelete={handleDelete}
+          onDelete={handleDeleteRequest}
           onTerminal={handleTerminal}
         />
       {/each}
     </div>
   {/if}
 </div>
+
+<!-- Delete confirmation dialog -->
+{#if pendingDeleteId}
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in" onclick={cancelDelete}>
+    <div class="bg-[var(--color-kap-surface)] rounded-xl p-6 shadow-2xl border border-white/10 max-w-sm w-full mx-4 flex flex-col gap-4"
+         onclick={(e) => e.stopPropagation()}>
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-full bg-[color-mix(in_srgb,var(--color-kap-destruct)_15%,transparent)] flex items-center justify-center shrink-0">
+          <svg class="w-5 h-5 text-[var(--color-kap-destruct)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>
+            <path d="M9 6V4h6v2"/>
+          </svg>
+        </div>
+        <div>
+          <h3 class="font-semibold text-sm">Delete Vessel</h3>
+          <p class="text-xs text-[var(--color-kap-muted)] mt-0.5">
+            This will force-remove <span class="font-mono text-[var(--color-kap-text)]">{pendingDeleteName}</span> and all its data.
+          </p>
+        </div>
+      </div>
+      <div class="flex gap-2 justify-end">
+        <button class="btn btn-ghost px-4 text-sm" onclick={cancelDelete}>Cancel</button>
+        <button class="btn btn-danger px-4 text-sm" onclick={confirmDelete}>Delete</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <TerminalOverlay 
   vesselId={activeTerminalId} 
