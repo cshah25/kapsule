@@ -8,6 +8,10 @@ use std::collections::HashMap;
 
 use crate::AppState;
 
+// ---------------------------------------------------------------------------
+// Payload types
+// ---------------------------------------------------------------------------
+
 #[derive(Deserialize, Debug)]
 pub struct PortMapping {
     pub host: u16,
@@ -39,6 +43,25 @@ pub struct CreateVesselPayload {
     pub mounts: Vec<MountMapping>,
 }
 
+// ---------------------------------------------------------------------------
+// Response types
+// ---------------------------------------------------------------------------
+
+#[derive(Serialize, Clone)]
+pub struct VesselInfo {
+    pub id: String,
+    pub name: String,
+    pub image: String,
+    pub status: String, // "running" | "stopped" | "error"
+    pub cpu_percent: f64,
+    pub mem_used_mb: f64,
+    pub mem_limit_mb: f64,
+}
+
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
 #[tauri::command]
 pub async fn create_vessel(
     state: State<'_, AppState>,
@@ -52,15 +75,14 @@ pub async fn create_vessel(
         return Err("Image cannot be empty".into());
     }
 
-    // 1. Get docker connection based on active engine
+    let docker = state.get_client().await?;
+
     let engine = {
         let lock = state.active_engine.lock().await;
         lock.clone().ok_or("No active engine selected")?
     };
 
-    let docker = crate::engine::connect(engine).await.ok_or("Failed to connect to container engine")?;
-
-    // 2. Directory generation for isolated home
+    // Directory generation for isolated home
     let mut binds = vec![];
     if payload.isolated_home {
         if let Some(mut data_dir) = dirs::data_local_dir() {
@@ -99,22 +121,33 @@ pub async fn create_vessel(
         }]));
     }
 
-    // 3. Pull image
-    let mut pull_stream = docker.create_image(
-        Some(CreateImageOptions {
-            from_image: payload.image.clone(),
-            ..Default::default()
-        }),
-        None,
-        None,
-    );
-    while let Some(result) = pull_stream.next().await {
-        if let Err(e) = result {
-            return Err(format!("Failed to pull image: {}", e));
+    // Only pull if image doesn't exist locally
+    let images = docker.list_images(Some(ListImagesOptions::<String> {
+        all: false,
+        ..Default::default()
+    })).await.map_err(|e| e.to_string())?;
+
+    let image_exists = images.iter().any(|img| {
+        img.repo_tags.iter().any(|t| *t == payload.image)
+    });
+
+    if !image_exists {
+        let mut pull_stream = docker.create_image(
+            Some(CreateImageOptions {
+                from_image: payload.image.clone(),
+                ..Default::default()
+            }),
+            None,
+            None,
+        );
+        while let Some(result) = pull_stream.next().await {
+            if let Err(e) = result {
+                return Err(format!("Failed to pull image: {}", e));
+            }
         }
     }
 
-    // 4. Create and start container
+    // Create and start container
     let mut env = vec![];
     for var in payload.env_vars {
         if !var.key.is_empty() {
@@ -163,95 +196,92 @@ pub async fn create_vessel(
     Ok(())
 }
 
-#[derive(Serialize)]
-pub struct VesselInfo {
-    pub id: String,
-    pub name: String,
-    pub image: String,
-    pub status: String,
-    pub cpu_percent: f64,
-    pub mem_used_mb: f64,
-    pub mem_limit_mb: f64,
-}
-
 #[tauri::command]
 pub async fn list_vessels(state: State<'_, AppState>) -> Result<Vec<VesselInfo>, String> {
-    let engine = {
-        let lock = state.active_engine.lock().await;
-        if let Some(e) = lock.clone() { e } else { return Ok(vec![]); }
+    let docker = match state.get_client().await {
+        Ok(d) => d,
+        Err(_) => return Ok(vec![]), // No engine = no vessels
     };
-
-    let docker = crate::engine::connect(engine).await.ok_or("Failed to connect to engine")?;
     
     let containers = docker.list_containers(Some(ListContainersOptions::<String> {
         all: true,
         ..Default::default()
     })).await.map_err(|e| e.to_string())?;
 
-    let mut result = Vec::new();
-    for c in containers {
-        let name = c.names.unwrap_or_default().first().cloned().unwrap_or_default().trim_start_matches('/').to_string();
+    // Phase 1: Build basic vessel info (fast — no stats calls)
+    let mut vessels: Vec<VesselInfo> = containers.iter().map(|c| {
+        let name = c.names.clone().unwrap_or_default()
+            .first().cloned().unwrap_or_default()
+            .trim_start_matches('/').to_string();
         let status = match c.state.as_deref() {
             Some("running") => "running",
             Some("exited") | Some("created") => "stopped",
             _ => "error",
         };
+        VesselInfo {
+            id: c.id.clone().unwrap_or_default(),
+            name,
+            image: c.image.clone().unwrap_or_default(),
+            status: status.to_string(),
+            cpu_percent: 0.0,
+            mem_used_mb: 0.0,
+            mem_limit_mb: 0.0,
+        }
+    }).collect();
 
-        let mut cpu_percent = 0.0;
-        let mut mem_used_mb = 0.0;
-        let mut mem_limit_mb = 0.0;
+    // Phase 2: Fetch stats CONCURRENTLY for all running containers
+    let running: Vec<(usize, String)> = vessels.iter().enumerate()
+        .filter(|(_, v)| v.status == "running")
+        .map(|(i, v)| (i, v.id.clone()))
+        .collect();
 
-        let id = c.id.clone().unwrap_or_default();
+    if !running.is_empty() {
+        let stats_futures: Vec<_> = running.iter().map(|(_, id)| {
+            let docker = docker.clone();
+            let id = id.clone();
+            async move {
+                let mut stream = docker.stats(&id, Some(StatsOptions { stream: false, ..Default::default() }));
+                stream.next().await
+            }
+        }).collect();
 
-        if status == "running" {
-            let mut stream = docker.stats(&id, Some(StatsOptions { stream: false, ..Default::default() }));
-            if let Some(Ok(stats)) = stream.next().await {
+        let stats_results = futures_util::future::join_all(stats_futures).await;
+
+        for ((idx, _), result) in running.iter().zip(stats_results) {
+            if let Some(Ok(stats)) = result {
                 let mem_usage = stats.memory_stats.usage.unwrap_or(0) as f64;
                 let mem_limit = stats.memory_stats.limit.unwrap_or(0) as f64;
-                mem_used_mb = mem_usage / 1024.0 / 1024.0;
-                mem_limit_mb = mem_limit / 1024.0 / 1024.0;
+                vessels[*idx].mem_used_mb = (mem_usage / 1024.0 / 1024.0 * 10.0).round() / 10.0;
+                vessels[*idx].mem_limit_mb = (mem_limit / 1024.0 / 1024.0).round();
 
                 let cpu_delta = stats.cpu_stats.cpu_usage.total_usage as f64 - stats.precpu_stats.cpu_usage.total_usage as f64;
                 let system_delta = stats.cpu_stats.system_cpu_usage.unwrap_or(0) as f64 - stats.precpu_stats.system_cpu_usage.unwrap_or(0) as f64;
                 if system_delta > 0.0 && cpu_delta > 0.0 {
                     let online_cpus = stats.cpu_stats.online_cpus.unwrap_or(1) as f64;
-                    cpu_percent = (cpu_delta / system_delta) * online_cpus * 100.0;
+                    vessels[*idx].cpu_percent = ((cpu_delta / system_delta) * online_cpus * 100.0 * 10.0).round() / 10.0;
                 }
             }
         }
-        
-        result.push(VesselInfo {
-            id,
-            name,
-            image: c.image.unwrap_or_default(),
-            status: status.to_string(),
-            cpu_percent,
-            mem_used_mb,
-            mem_limit_mb,
-        });
     }
 
-    Ok(result)
+    Ok(vessels)
 }
 
 #[tauri::command]
 pub async fn start_vessel(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    let engine = state.active_engine.lock().await.clone().ok_or("No active engine")?;
-    let docker = crate::engine::connect(engine).await.ok_or("Failed to connect")?;
+    let docker = state.get_client().await?;
     docker.start_container::<String>(&id, None).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn stop_vessel(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    let engine = state.active_engine.lock().await.clone().ok_or("No active engine")?;
-    let docker = crate::engine::connect(engine).await.ok_or("Failed to connect")?;
+    let docker = state.get_client().await?;
     docker.stop_container(&id, None).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn delete_vessel(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    let engine = state.active_engine.lock().await.clone().ok_or("No active engine")?;
-    let docker = crate::engine::connect(engine).await.ok_or("Failed to connect")?;
+    let docker = state.get_client().await?;
     docker.remove_container(&id, Some(RemoveContainerOptions { force: true, ..Default::default() })).await.map_err(|e| e.to_string())
 }
 
@@ -261,8 +291,7 @@ pub async fn stream_vessel_logs(
     id: String,
     on_message: Channel<String>,
 ) -> Result<(), String> {
-    let engine = state.active_engine.lock().await.clone().ok_or("No active engine")?;
-    let docker = crate::engine::connect(engine).await.ok_or("Failed to connect")?;
+    let docker = state.get_client().await?;
 
     tauri::async_runtime::spawn(async move {
         let mut stream = docker.logs(&id, Some(LogsOptions::<String> {
@@ -291,8 +320,7 @@ pub async fn stream_vessel_logs(
 
 #[tauri::command]
 pub async fn list_local_images(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let engine = state.active_engine.lock().await.clone().ok_or("No active engine")?;
-    let docker = crate::engine::connect(engine).await.ok_or("Failed to connect")?;
+    let docker = state.get_client().await?;
 
     let images = docker.list_images(Some(ListImagesOptions::<String> {
         all: false,
