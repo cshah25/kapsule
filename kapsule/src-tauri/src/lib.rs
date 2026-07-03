@@ -10,6 +10,7 @@ mod library;
 mod desktop;
 
 use engine::{detect_engines, Engine, EngineStatus};
+use bollard::Docker;
 use tauri::State;
 use tokio::sync::Mutex;
 
@@ -21,6 +22,33 @@ use tokio::sync::Mutex;
 pub struct AppState {
     /// The engine currently selected by the user (or auto-detected).
     pub active_engine: Mutex<Option<Engine>>,
+    /// Cached Docker/Podman client — avoids reconnecting on every command.
+    pub docker_client: Mutex<Option<Docker>>,
+}
+
+impl AppState {
+    /// Get the cached Docker client, or create and cache a new one.
+    /// This avoids re-probing sockets and re-pinging on every Tauri command.
+    pub async fn get_client(&self) -> Result<Docker, String> {
+        // Fast path: return cached client
+        {
+            let lock = self.docker_client.lock().await;
+            if let Some(ref client) = *lock {
+                return Ok(client.clone());
+            }
+        }
+        // Slow path: create new connection
+        let engine = self.active_engine.lock().await.clone()
+            .ok_or("No active engine selected")?;
+        let client = engine::connect(engine).await
+            .ok_or("Failed to connect to container engine")?;
+        // Cache for next time
+        {
+            let mut lock = self.docker_client.lock().await;
+            *lock = Some(client.clone());
+        }
+        Ok(client)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -37,6 +65,9 @@ async fn get_engine_status(state: State<'_, AppState>) -> Result<EngineStatus, S
         if lock.is_none() {
             *lock = Some(engine);
         }
+        drop(lock);
+        // Pre-cache the client so the first list_vessels call is fast
+        let _ = state.get_client().await;
     }
     Ok(status)
 }
@@ -48,13 +79,20 @@ async fn set_engine(
     state: State<'_, AppState>,
     engine: Engine,
 ) -> Result<(), String> {
-    // Verify the requested engine is actually reachable
-    let _docker = engine::connect(engine)
+    // Verify and get client in one step
+    let client = engine::connect(engine)
         .await
         .ok_or_else(|| format!("{:?} is not reachable — is the daemon running?", engine))?;
 
-    let mut lock = state.active_engine.lock().await;
-    *lock = Some(engine);
+    // Update engine
+    let mut engine_lock = state.active_engine.lock().await;
+    *engine_lock = Some(engine);
+    drop(engine_lock);
+
+    // Replace cached client
+    let mut client_lock = state.docker_client.lock().await;
+    *client_lock = Some(client);
+
     Ok(())
 }
 
@@ -68,6 +106,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
             active_engine: Mutex::new(None),
+            docker_client: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             get_engine_status, 
