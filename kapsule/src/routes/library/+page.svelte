@@ -214,7 +214,7 @@
         </div>
 
         <div class="flex flex-col gap-2">
-          <label class="text-xs font-semibold uppercase tracking-wider text-[var(--color-kap-muted)]">Select Tag</label>
+          <label for="tag-select-btn" class="text-xs font-semibold uppercase tracking-wider text-[var(--color-kap-muted)]">Select Tag</label>
           {#if loadingTags}
             <div class="text-sm text-[var(--color-kap-muted)] flex items-center gap-2">
               <div class="w-3 h-3 rounded-full border-2 border-white/20 border-t-white animate-spin"></div>
@@ -223,6 +223,7 @@
           {:else}
             <div class="relative">
               <button 
+                id="tag-select-btn"
                 type="button"
                 class="kap-input w-full flex items-center justify-between text-left {isTagDropdownOpen ? 'rounded-b-none border-b-[var(--color-kap-border)]' : ''}" 
                 onclick={() => isTagDropdownOpen = !isTagDropdownOpen}

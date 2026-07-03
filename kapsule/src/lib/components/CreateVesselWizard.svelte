@@ -137,9 +137,10 @@
             </div>
             
             <div class="space-y-1.5">
-              <label class="text-sm font-medium">Container Image</label>
+              <label for="container-image-btn" class="text-sm font-medium">Container Image</label>
               <div class="relative">
                 <button 
+                  id="container-image-btn"
                   type="button"
                   class="kap-input w-full flex items-center justify-between text-left {isImageDropdownOpen ? 'rounded-b-none border-b-[var(--color-kap-border)]' : ''}" 
                   onclick={() => isImageDropdownOpen = !isImageDropdownOpen}

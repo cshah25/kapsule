@@ -13,7 +13,7 @@
 
   let { vesselId, vesselName, onClose }: Props = $props();
 
-  let terminalContainer: HTMLDivElement;
+  let terminalContainer = $state<HTMLDivElement>();
   let term: Terminal | null = null;
   let fitAddon: FitAddon | null = null;
   let resizeObserver: ResizeObserver | null = null;
