@@ -14,38 +14,14 @@
   let { vesselId, vesselName, onClose }: Props = $props();
 
   let terminalContainer: HTMLDivElement;
-  let term: Terminal;
-  let fitAddon: FitAddon;
-  let logChannel: Channel<string> | null = null;
-  let resizeObserver: ResizeObserver;
+  let term: Terminal | null = null;
+  let fitAddon: FitAddon | null = null;
+  let resizeObserver: ResizeObserver | null = null;
+  let isTerminalOpen = false;
+  let activeStreamId: string | null = null;
 
-  $effect(() => {
-    if (vesselId && term) {
-      term.clear();
-      startLogStream(vesselId);
-    }
-  });
-
-  async function startLogStream(id: string) {
-    if (logChannel) {
-      logChannel = null;
-    }
-    
-    const channel = new Channel<string>();
-    channel.onmessage = (message) => {
-      term.write(message.replace(/\n/g, "\r\n"));
-    };
-    logChannel = channel;
-
-    try {
-      await invoke("stream_vessel_logs", { id, onMessage: channel });
-    } catch (err) {
-      console.error("Log stream error:", err);
-      term.write(`\r\n\x1b[31mError streaming logs: ${err}\x1b[0m\r\n`);
-    }
-  }
-
-  onMount(() => {
+  function initTerminal() {
+    if (term) return; // Already initialised
     term = new Terminal({
       theme: {
         background: '#1e1e1e',
@@ -57,25 +33,68 @@
     });
     fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
-    
+  }
+
+  function openTerminal() {
+    if (!term || !terminalContainer || isTerminalOpen) return;
+    term.open(terminalContainer);
+    fitAddon?.fit();
+    isTerminalOpen = true;
+
+    // Observe container resizes
     resizeObserver = new ResizeObserver(() => {
-      if (vesselId && fitAddon) {
-        fitAddon.fit();
-      }
+      if (fitAddon && isTerminalOpen) fitAddon.fit();
     });
-  });
-  
+    resizeObserver.observe(terminalContainer);
+  }
+
+  async function startLogStream(id: string) {
+    if (!term) return;
+    // Mark which stream is active so stale callbacks are ignored
+    activeStreamId = id;
+    term.clear();
+
+    const channel = new Channel<string>();
+    const capturedId = id;
+    channel.onmessage = (message) => {
+      // Ignore messages from a stale stream
+      if (activeStreamId !== capturedId) return;
+      term?.write(message.replace(/\n/g, "\r\n"));
+    };
+
+    try {
+      await invoke("stream_vessel_logs", { id, onMessage: channel });
+    } catch (err) {
+      if (activeStreamId === capturedId) {
+        console.error("Log stream error:", err);
+        term?.write(`\r\n\x1b[31mError streaming logs: ${err}\x1b[0m\r\n`);
+      }
+    }
+  }
+
+  // When vesselId changes, start a new log stream
   $effect(() => {
-    if (vesselId && terminalContainer && term) {
-        term.open(terminalContainer);
-        fitAddon.fit();
-        resizeObserver.observe(terminalContainer);
+    if (vesselId) {
+      initTerminal();
+      // Need to defer opening until the DOM element is rendered
+      requestAnimationFrame(() => {
+        openTerminal();
+        startLogStream(vesselId);
+      });
+    } else {
+      // Vessel closed — stop stream
+      activeStreamId = null;
     }
   });
 
   onDestroy(() => {
+    activeStreamId = null;
     if (resizeObserver) resizeObserver.disconnect();
-    if (term) term.dispose();
+    if (term) {
+      term.dispose();
+      term = null;
+      isTerminalOpen = false;
+    }
   });
 </script>
 

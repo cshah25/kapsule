@@ -9,12 +9,25 @@ pub struct DesktopEntryPayload {
     pub icon_path: Option<String>,
 }
 
+/// Sanitize a string to only allow safe characters in filenames and shell commands.
+fn sanitize_name(name: &str) -> Result<String, String> {
+    let safe: String = name
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+        .collect();
+    if safe.is_empty() {
+        return Err("Vessel name contains no valid characters for a desktop entry".into());
+    }
+    Ok(safe)
+}
+
 #[tauri::command]
 pub async fn generate_desktop_entry(
     state: State<'_, AppState>,
     payload: DesktopEntryPayload,
 ) -> Result<(), String> {
     let engine = state.active_engine.lock().await.clone().ok_or("No active engine")?;
+    let safe_name = sanitize_name(&payload.vessel_name)?;
     
     let engine_cmd = match engine {
         crate::engine::Engine::Docker => "docker",
@@ -25,16 +38,11 @@ pub async fn generate_desktop_entry(
     applications_dir.push("applications");
     fs::create_dir_all(&applications_dir).map_err(|e| e.to_string())?;
 
-    let desktop_file_path = applications_dir.join(format!("kapsule-{}.desktop", payload.vessel_name));
+    let desktop_file_path = applications_dir.join(format!("kapsule-{}.desktop", safe_name));
     
-    let icon_line = if let Some(icon) = payload.icon_path {
-        if !icon.is_empty() {
-            format!("Icon={}", icon)
-        } else {
-            "Icon=utilities-terminal".to_string()
-        }
-    } else {
-        "Icon=utilities-terminal".to_string()
+    let icon_line = match payload.icon_path {
+        Some(ref icon) if !icon.is_empty() => format!("Icon={}", icon),
+        _ => "Icon=utilities-terminal".to_string(),
     };
 
     let desktop_content = format!(
@@ -47,7 +55,7 @@ pub async fn generate_desktop_entry(
          Terminal=false\n\
          Categories=Development;Utility;\n\
          {}\n",
-        payload.vessel_name, engine_cmd, payload.vessel_name, icon_line
+        safe_name, engine_cmd, safe_name, icon_line
     );
 
     fs::write(&desktop_file_path, desktop_content).map_err(|e| format!("Failed to write .desktop file: {}", e))?;

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke, Channel } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
+  import { toast } from "$lib/stores/toast.svelte";
 
   interface SearchResult {
     repo_name: string;
@@ -80,7 +81,7 @@
     try {
       results = await invoke<SearchResult[]>("search_images", { query: query.trim() });
     } catch (err) {
-      console.error(err);
+      toast.error(`Search failed: ${err}`);
     } finally {
       searching = false;
     }
@@ -97,7 +98,7 @@
         selectedTag = tags[0];
       }
     } catch (err) {
-      console.error(err);
+      toast.error(`Failed to load tags: ${err}`);
     } finally {
       loadingTags = false;
     }
@@ -135,7 +136,7 @@
     try {
       await invoke("pull_image", { image: imageToPull, onMessage: channel });
     } catch (err) {
-      console.error(err);
+      toast.error(`Pull failed: ${err}`);
       pulling = false;
     }
   }

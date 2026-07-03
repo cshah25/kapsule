@@ -74,27 +74,27 @@
   }
 
   function addPort() {
-    form.ports.push({ host: 8080, container: 80 });
+    form.ports = [...form.ports, { host: 8080, container: 80 }];
   }
 
   function removePort(index: number) {
-    form.ports.splice(index, 1);
+    form.ports = form.ports.filter((_, i) => i !== index);
   }
 
   function addMount() {
-    form.mounts.push({ host_path: "", container_path: "", read_only: false });
+    form.mounts = [...form.mounts, { host_path: "", container_path: "", read_only: false }];
   }
 
   function removeMount(index: number) {
-    form.mounts.splice(index, 1);
+    form.mounts = form.mounts.filter((_, i) => i !== index);
   }
 
   function addEnv() {
-    form.env_vars.push({ key: "", value: "" });
+    form.env_vars = [...form.env_vars, { key: "", value: "" }];
   }
 
   function removeEnv(index: number) {
-    form.env_vars.splice(index, 1);
+    form.env_vars = form.env_vars.filter((_, i) => i !== index);
   }
 </script>
 
