@@ -1,13 +1,11 @@
 <script lang="ts">
-  /**
-   * HeaderBar.svelte — The 48px application header.
-   *
-   * Contains:
-   *  - App title (centered)
-   *  - Engine toggle (Podman / Docker) on the left
-   *  - Global action buttons on the right (Add Vessel, Search)
-   *  - Window controls (minimize, maximize, close)
-   */
+  // HeaderBar.svelte — The 48px application header.
+  //
+  // Contains:
+  //  - App title (centered)
+  //  - Engine toggle (Podman / Docker) on the left
+  //  - Global action buttons on the right (Add Vessel, Search)
+  //  - Window controls (minimize, maximize, close)
   import { engineStatus, activeEngine, switchEngine, engineLoading } from "$lib/stores/engine";
   import type { Engine } from "$lib/stores/engine";
   import { uiState } from "$lib/stores/ui.svelte";
@@ -20,12 +18,15 @@
 
   // Check initial maximized state and listen for changes
   import { onMount } from "svelte";
-  onMount(async () => {
-    isMaximized = await appWindow.isMaximized();
-    const unlisten = await appWindow.onResized(async () => {
+  onMount(() => {
+    appWindow.isMaximized().then(m => isMaximized = m);
+    let unlisten: () => void;
+    appWindow.onResized(async () => {
       isMaximized = await appWindow.isMaximized();
-    });
-    return () => unlisten();
+    }).then(u => unlisten = u);
+    return () => {
+      if (unlisten) unlisten();
+    };
   });
 
   interface Props {
@@ -40,9 +41,18 @@
       toast.error(`Failed to switch to ${engine}: ${err}`);
     }
   }
+
+  function handlePointerDown(e: PointerEvent) {
+    // Only start dragging if the target isn't an interactive element
+    const target = e.target as HTMLElement;
+    if (!target.closest('button, input, select, a, .no-drag')) {
+      appWindow.startDragging();
+    }
+  }
 </script>
 
-<header class="kap-headerbar select-none">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<header class="kap-headerbar select-none" data-tauri-drag-region onpointerdown={handlePointerDown}>
   <!-- Engine toggle segmented control -->
   <div class="relative flex items-center bg-[var(--color-kap-window)] rounded-lg p-1 w-[200px] h-[34px]">
     {#if $engineLoading}
