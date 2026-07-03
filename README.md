@@ -20,15 +20,6 @@ Kapsule leverages a hybrid architecture to deliver web-like UI fluidity with nat
 
 ## Installation
 
-### NixOS (Recommended)
-
-Kapsule is packaged as a native Nix Flake. The package automatically retrieves the latest release and patches it against your host's native graphical libraries (WebKitGTK, GTK3) for optimal performance and display server compatibility.
-
-Run Kapsule instantly without installation:
-```bash
-nix run github:cshah25/kapsule
-```
-
 ### Linux Distributions (Debian, Fedora, AppImage)
 
 Pre-compiled binaries are generated automatically and available on the [Releases](https://github.com/cshah25/kapsule/releases) page.
@@ -36,29 +27,42 @@ Pre-compiled binaries are generated automatically and available on the [Releases
 - **Fedora/RHEL**: Download and install the `.rpm` package.
 - **Universal**: Download the `.AppImage`, mark it as executable (`chmod +x`), and run it directly.
 
+### NixOS
+Kapsule is packaged as a native Nix Flake. The package automatically retrieves the latest release and patches it against your host's native graphical libraries (WebKitGTK, GTK3) for optimal performance and display server compatibility.
+
+Run Kapsule instantly without installation:
+```bash
+nix run github:cshah25/kapsule
+```
+
 ## Development
 
 Kapsule provides a fully reproducible build environment using Nix.
 
 ### Prerequisites
 
-- Nix package manager with Flakes enabled.
+- Docker or Podman
 
 ### Setup
 
-1. Enter the isolated development shell (this provisions Rust, Node.js, and all native GTK libraries):
-   ```bash
-   nix develop
-   ```
-2. Navigate to the project root and install Node dependencies:
-   ```bash
-   cd kapsule
-   npm install
-   ```
-3. Start the development server with Hot-Module Replacement (HMR):
-   ```bash
-   npm run tauri dev
-   ```
+1. Clone this repo
+```bash
+git clone https://github.com/cshah25/kapsule.git
+cd kapsule
+```
+
+2. Build the container 
+```bash
+# Building the container
+make build
+
+# Running the container
+make dev
+```
+3. Run the application in the container
+```bash
+cd kapsule && npm run tauri dev 
+```
 
 ### Building for Production
 
