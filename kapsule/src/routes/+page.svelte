@@ -23,11 +23,35 @@
   // Delete confirmation state
   let pendingDeleteId = $state<string | null>(null);
   let pendingDeleteName = $state<string | null>(null);
+  let isDeleting = $state(false);
 
   async function fetchVessels() {
     if ($activeEngine) {
       try {
-        vessels = await invoke<VesselInfo[]>("list_vessels");
+        const newVessels = await invoke<VesselInfo[]>("list_vessels");
+        // Preserve existing stats if we have them so they don't flash to 0
+        vessels = newVessels.map(v => {
+          const existing = vessels.find(ev => ev.id === v.id);
+          if (existing) {
+            v.cpu_percent = existing.cpu_percent;
+            v.mem_used_mb = existing.mem_used_mb;
+            v.mem_limit_mb = existing.mem_limit_mb;
+          }
+          return v;
+        });
+        
+        isLoading = false;
+
+        // Lazy load stats for running containers
+        const stats = await invoke<Record<string, {cpu_percent: number, mem_used_mb: number, mem_limit_mb: number}>>("get_all_vessel_stats");
+        vessels = vessels.map(v => {
+          if (stats[v.id]) {
+            v.cpu_percent = stats[v.id].cpu_percent;
+            v.mem_used_mb = stats[v.id].mem_used_mb;
+            v.mem_limit_mb = stats[v.id].mem_limit_mb;
+          }
+          return v;
+        });
       } catch (err) {
         console.error("Failed to fetch vessels:", err);
       } finally {
@@ -88,14 +112,17 @@
   async function confirmDelete() {
     if (!pendingDeleteId) return;
     const id = pendingDeleteId;
-    pendingDeleteId = null;
-    pendingDeleteName = null;
+    isDeleting = true;
     try {
       await invoke("delete_vessel", { id });
       toast.success("Vessel deleted");
       await fetchVessels();
     } catch (err) {
       toast.error(`Failed to delete: ${err}`);
+    } finally {
+      isDeleting = false;
+      pendingDeleteId = null;
+      pendingDeleteName = null;
     }
   }
 
@@ -118,6 +145,7 @@
   // ---------------------------------------------------------------------------
   const runningCount = $derived(vessels.filter((v) => v.status === "running").length);
   const stoppedCount = $derived(vessels.filter((v) => v.status === "stopped").length);
+  const totalCpu = $derived(vessels.reduce((sum, v) => sum + (v.cpu_percent || 0), 0).toFixed(1));
 </script>
 
 <svelte:head>
@@ -143,6 +171,7 @@
 
     <!-- Stats pills -->
     <div class="flex items-center gap-2">
+      <span class="badge badge-running" style="background: var(--color-kap-surface2); color: var(--color-kap-text);">{totalCpu}% CPU Total</span>
       <span class="badge badge-running">{runningCount} running</span>
       <span class="badge badge-stopped">{stoppedCount} stopped</span>
     </div>
@@ -223,8 +252,15 @@
         </div>
       </div>
       <div class="flex gap-2 justify-end">
-        <button class="btn btn-ghost px-4 text-sm" onclick={cancelDelete}>Cancel</button>
-        <button class="btn btn-danger px-4 text-sm" onclick={confirmDelete}>Delete</button>
+        <button class="btn btn-ghost px-4 text-sm" onclick={cancelDelete} disabled={isDeleting}>Cancel</button>
+        <button class="btn btn-danger px-4 text-sm flex items-center gap-2" onclick={confirmDelete} disabled={isDeleting}>
+          {#if isDeleting}
+            <div class="w-4 h-4 rounded-full border-2 border-white/20 border-t-white animate-spin"></div>
+            Deleting...
+          {:else}
+            Delete
+          {/if}
+        </button>
       </div>
     </div>
   </div>

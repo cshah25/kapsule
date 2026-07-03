@@ -48,6 +48,13 @@ pub struct CreateVesselPayload {
 // ---------------------------------------------------------------------------
 
 #[derive(Serialize, Clone)]
+pub struct VesselStats {
+    pub cpu_percent: f64,
+    pub mem_used_mb: f64,
+    pub mem_limit_mb: f64,
+}
+
+#[derive(Serialize, Clone)]
 pub struct VesselInfo {
     pub id: String,
     pub name: String,
@@ -208,8 +215,7 @@ pub async fn list_vessels(state: State<'_, AppState>) -> Result<Vec<VesselInfo>,
         ..Default::default()
     })).await.map_err(|e| e.to_string())?;
 
-    // Phase 1: Build basic vessel info (fast — no stats calls)
-    let mut vessels: Vec<VesselInfo> = containers.iter().map(|c| {
+    let vessels: Vec<VesselInfo> = containers.iter().map(|c| {
         let name = c.names.clone().unwrap_or_default()
             .first().cloned().unwrap_or_default()
             .trim_start_matches('/').to_string();
@@ -229,42 +235,52 @@ pub async fn list_vessels(state: State<'_, AppState>) -> Result<Vec<VesselInfo>,
         }
     }).collect();
 
-    // Phase 2: Fetch stats CONCURRENTLY for all running containers
-    let running: Vec<(usize, String)> = vessels.iter().enumerate()
-        .filter(|(_, v)| v.status == "running")
-        .map(|(i, v)| (i, v.id.clone()))
-        .collect();
+    Ok(vessels)
+}
 
-    if !running.is_empty() {
-        let stats_futures: Vec<_> = running.iter().map(|(_, id)| {
-            let docker = docker.clone();
-            let id = id.clone();
-            async move {
-                let mut stream = docker.stats(&id, Some(StatsOptions { stream: false, ..Default::default() }));
-                stream.next().await
+#[tauri::command]
+pub async fn get_all_vessel_stats(state: State<'_, AppState>) -> Result<HashMap<String, VesselStats>, String> {
+    let docker = match state.get_client().await {
+        Ok(d) => d,
+        Err(_) => return Ok(HashMap::new()),
+    };
+    
+    let containers = docker.list_containers(Some(ListContainersOptions::<String> {
+        all: false,
+        ..Default::default()
+    })).await.map_err(|e| e.to_string())?;
+
+    let mut result = HashMap::new();
+    let stats_futures: Vec<_> = containers.iter().map(|c| {
+        let docker = docker.clone();
+        let id = c.id.clone().unwrap_or_default();
+        async move {
+            let mut stream = docker.stats(&id, Some(StatsOptions { stream: false, ..Default::default() }));
+            let stats = stream.next().await;
+            (id, stats)
+        }
+    }).collect();
+
+    let stats_results = futures_util::future::join_all(stats_futures).await;
+
+    for (id, stat_res) in stats_results {
+        if let Some(Ok(stats)) = stat_res {
+            let mem_usage = stats.memory_stats.usage.unwrap_or(0) as f64;
+            let mem_limit = stats.memory_stats.limit.unwrap_or(0) as f64;
+            let mem_used_mb = (mem_usage / 1024.0 / 1024.0 * 10.0).round() / 10.0;
+            let mem_limit_mb = (mem_limit / 1024.0 / 1024.0).round();
+
+            let cpu_delta = stats.cpu_stats.cpu_usage.total_usage as f64 - stats.precpu_stats.cpu_usage.total_usage as f64;
+            let system_delta = stats.cpu_stats.system_cpu_usage.unwrap_or(0) as f64 - stats.precpu_stats.system_cpu_usage.unwrap_or(0) as f64;
+            let mut cpu_percent = 0.0;
+            if system_delta > 0.0 && cpu_delta > 0.0 {
+                let online_cpus = stats.cpu_stats.online_cpus.unwrap_or(1) as f64;
+                cpu_percent = ((cpu_delta / system_delta) * online_cpus * 100.0 * 10.0).round() / 10.0;
             }
-        }).collect();
-
-        let stats_results = futures_util::future::join_all(stats_futures).await;
-
-        for ((idx, _), result) in running.iter().zip(stats_results) {
-            if let Some(Ok(stats)) = result {
-                let mem_usage = stats.memory_stats.usage.unwrap_or(0) as f64;
-                let mem_limit = stats.memory_stats.limit.unwrap_or(0) as f64;
-                vessels[*idx].mem_used_mb = (mem_usage / 1024.0 / 1024.0 * 10.0).round() / 10.0;
-                vessels[*idx].mem_limit_mb = (mem_limit / 1024.0 / 1024.0).round();
-
-                let cpu_delta = stats.cpu_stats.cpu_usage.total_usage as f64 - stats.precpu_stats.cpu_usage.total_usage as f64;
-                let system_delta = stats.cpu_stats.system_cpu_usage.unwrap_or(0) as f64 - stats.precpu_stats.system_cpu_usage.unwrap_or(0) as f64;
-                if system_delta > 0.0 && cpu_delta > 0.0 {
-                    let online_cpus = stats.cpu_stats.online_cpus.unwrap_or(1) as f64;
-                    vessels[*idx].cpu_percent = ((cpu_delta / system_delta) * online_cpus * 100.0 * 10.0).round() / 10.0;
-                }
-            }
+            result.insert(id, VesselStats { cpu_percent, mem_used_mb, mem_limit_mb });
         }
     }
-
-    Ok(vessels)
+    Ok(result)
 }
 
 #[tauri::command]

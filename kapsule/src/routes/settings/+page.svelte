@@ -3,6 +3,18 @@
    * settings/+page.svelte — Application settings (placeholder)
    */
   import { engineStatus, activeEngine } from "$lib/stores/engine";
+  import { getVersion } from "@tauri-apps/api/app";
+  import { onMount } from "svelte";
+
+  let appVersion = $state("Loading...");
+
+  onMount(async () => {
+    try {
+      appVersion = await getVersion();
+    } catch (e) {
+      appVersion = "Unknown";
+    }
+  });
 </script>
 
 <svelte:head>
@@ -43,6 +55,15 @@
     <div class="kap-card p-4 flex items-center justify-between text-sm">
       <span class="text-[var(--color-kap-text-dim)]">Vessel home root</span>
       <span class="font-mono text-xs text-[var(--color-kap-muted)]">~/.local/share/kapsule/vessels</span>
+    </div>
+  </section>
+
+  <!-- About -->
+  <section class="flex flex-col gap-2">
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-[var(--color-kap-muted)]">About</h2>
+    <div class="kap-card p-4 flex items-center justify-between text-sm">
+      <span class="text-[var(--color-kap-text-dim)]">Version</span>
+      <span class="font-mono text-xs text-[var(--color-kap-muted)]">{appVersion}</span>
     </div>
   </section>
 </div>
