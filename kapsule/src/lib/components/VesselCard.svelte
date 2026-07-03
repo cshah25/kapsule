@@ -21,20 +21,6 @@
 
   let { vessel, onStart, onStop, onDelete, onTerminal }: Props = $props();
 
-  async function addToDesktop() {
-    try {
-      await invoke("generate_desktop_entry", {
-        payload: {
-          vessel_name: vessel.name,
-          icon_path: null
-        }
-      });
-      toast.success(`Created desktop shortcut for ${vessel.name}`);
-    } catch (e: any) {
-      toast.error(`Failed to create shortcut: ${e.toString()}`);
-    }
-  }
-
   // ---------------------------------------------------------------------------
   // SVG arc meter helpers
   // ---------------------------------------------------------------------------
@@ -135,11 +121,11 @@
   {/if}
 
   <!-- Action buttons -->
-  <div class="flex items-center gap-2 pt-1 border-t border-[var(--color-kap-border)]">
+  <div class="flex items-center flex-wrap gap-2 pt-1 mt-auto border-t border-[var(--color-kap-border)]">
     {#if isRunning}
       <button
         id="btn-stop-{vessel.id}"
-        class="btn btn-ghost text-xs py-1 px-2.5 flex-1"
+        class="btn btn-ghost text-xs py-1 px-2.5 flex-1 justify-center min-w-[70px]"
         onclick={() => onStop?.(vessel.id)}
       >
         <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
@@ -147,7 +133,7 @@
       </button>
       <button
         id="btn-terminal-{vessel.id}"
-        class="btn btn-ghost text-xs py-1 px-2.5 flex-1"
+        class="btn btn-ghost text-xs py-1 px-2.5 flex-1 justify-center min-w-[70px]"
         onclick={() => onTerminal?.(vessel.id)}
       >
         <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -158,7 +144,7 @@
     {:else}
       <button
         id="btn-start-{vessel.id}"
-        class="btn btn-primary text-xs py-1 px-2.5 flex-1"
+        class="btn btn-primary text-xs py-1 px-2.5 flex-1 justify-center min-w-[70px]"
         onclick={() => onStart?.(vessel.id)}
       >
         <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -167,7 +153,7 @@
     {/if}
     <button
       id="btn-delete-{vessel.id}"
-      class="btn btn-ghost text-xs py-1 px-2 text-[var(--color-kap-destruct)] hover:bg-[color-mix(in_srgb,var(--color-kap-destruct)_15%,transparent)]"
+      class="btn btn-ghost text-xs py-1 px-2 shrink-0 text-[var(--color-kap-destruct)] hover:bg-[color-mix(in_srgb,var(--color-kap-destruct)_15%,transparent)]"
       onclick={() => onDelete?.(vessel.id)}
       title="Delete vessel"
     >
@@ -175,14 +161,6 @@
         <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>
         <path d="M9 6V4h6v2"/>
       </svg>
-    </button>
-    <button
-      id="btn-desktop-{vessel.id}"
-      class="btn btn-ghost text-xs py-1 px-2 hover:text-[var(--color-kap-accent)]"
-      onclick={addToDesktop}
-      title="Add to Desktop"
-    >
-      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
     </button>
   </div>
 </article>

@@ -7,7 +7,6 @@
 mod engine;
 mod vessel;
 mod library;
-mod desktop;
 
 use engine::{detect_engines, Engine, EngineStatus};
 use bollard::Docker;
@@ -113,6 +112,7 @@ pub fn run() {
             set_engine, 
             vessel::create_vessel,
             vessel::list_vessels,
+            vessel::get_all_vessel_stats,
             vessel::start_vessel,
             vessel::stop_vessel,
             vessel::delete_vessel,
@@ -120,8 +120,7 @@ pub fn run() {
             vessel::list_local_images,
             library::search_images,
             library::get_image_tags,
-            library::pull_image,
-            desktop::generate_desktop_entry
+            library::pull_image
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
