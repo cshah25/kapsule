@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
 use tauri::{State, ipc::Channel};
-use bollard::container::{Config, CreateContainerOptions, ListContainersOptions, StatsOptions, RemoveContainerOptions, LogsOptions};
+use bollard::container::{Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions, StatsOptions, RemoveContainerOptions, LogsOptions};
 use bollard::models::{HostConfig, PortBinding};
 use bollard::image::{CreateImageOptions, ListImagesOptions};
 use futures_util::StreamExt;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use crate::AppState;
 
@@ -66,6 +67,47 @@ pub struct VesselInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Isolated home helpers
+// ---------------------------------------------------------------------------
+
+/// Where the isolated home is mounted inside the container.
+const VESSEL_HOME: &str = "/home/kapsule";
+
+/// Root directory holding one `<name>/home` directory per vessel.
+fn vessels_root() -> Option<PathBuf> {
+    dirs::data_local_dir().map(|d| d.join("kapsule").join("vessels"))
+}
+
+/// Same rule the engines apply to container names (`[a-zA-Z0-9][a-zA-Z0-9_.-]*`).
+/// This also rules out `/`, `.` and `..`, so the name is safe as a path component.
+fn validate_vessel_name(name: &str) -> Result<(), String> {
+    let mut chars = name.chars();
+    let valid = matches!(chars.next(), Some(c) if c.is_ascii_alphanumeric())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
+    if valid {
+        Ok(())
+    } else {
+        Err("Vessel name must start with a letter or digit and contain only letters, digits, '_', '.' or '-'".into())
+    }
+}
+
+/// Find the Kapsule-managed vessel directory (`<vessels_root>/<name>`) behind a
+/// container's isolated home bind. Anything outside the vessels root — e.g. a
+/// user folder mounted at the same path — is never returned.
+fn isolated_vessel_dir(binds: &[String]) -> Option<PathBuf> {
+    let root = vessels_root()?.canonicalize().ok()?;
+    binds.iter().find_map(|bind| {
+        let mut parts = bind.split(':');
+        let home_dir = PathBuf::from(parts.next()?);
+        if parts.next()? != VESSEL_HOME || home_dir.file_name()? != "home" {
+            return None;
+        }
+        let vessel_dir = home_dir.parent()?.canonicalize().ok()?;
+        (vessel_dir.parent()? == root).then_some(vessel_dir)
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
 
@@ -74,10 +116,9 @@ pub async fn create_vessel(
     state: State<'_, AppState>,
     payload: CreateVesselPayload,
 ) -> Result<(), String> {
-    if payload.name.is_empty() {
-        return Err("Vessel name cannot be empty".into());
-    }
-    
+    // Validated before it is used as a path component for the isolated home
+    validate_vessel_name(&payload.name)?;
+
     if payload.image.is_empty() {
         return Err("Image cannot be empty".into());
     }
@@ -89,25 +130,7 @@ pub async fn create_vessel(
         lock.clone().ok_or("No active engine selected")?
     };
 
-    // Directory generation for isolated home
     let mut binds = vec![];
-    if payload.isolated_home {
-        if let Some(mut data_dir) = dirs::data_local_dir() {
-            data_dir.push("kapsule");
-            data_dir.push("vessels");
-            data_dir.push(&payload.name);
-            data_dir.push("home");
-
-            std::fs::create_dir_all(&data_dir).map_err(|e| format!("Failed to create isolated home: {}", e))?;
-
-            let mut bind = format!("{}:/home/kapsule", data_dir.display());
-            if engine == crate::engine::Engine::Podman {
-                bind.push_str(":Z"); // SELinux relabeling
-            }
-            binds.push(bind);
-        }
-    }
-
     for mount in payload.mounts {
         let mut bind = format!("{}:{}", mount.host_path, mount.container_path);
         if mount.read_only {
@@ -162,6 +185,32 @@ pub async fn create_vessel(
         }
     }
 
+    // Directory generation for isolated home. Done after the pull so a failed
+    // pull doesn't leave an empty vessel directory behind.
+    let mut created_vessel_dir = None;
+    if payload.isolated_home {
+        let vessel_dir = vessels_root()
+            .ok_or("Could not determine the local data directory for isolated homes")?
+            .join(&payload.name);
+        let home_dir = vessel_dir.join("home");
+
+        if !vessel_dir.exists() {
+            created_vessel_dir = Some(vessel_dir.clone());
+        }
+        std::fs::create_dir_all(&home_dir).map_err(|e| format!("Failed to create isolated home: {}", e))?;
+
+        let mut bind = format!("{}:{}", home_dir.display(), VESSEL_HOME);
+        if engine == crate::engine::Engine::Podman {
+            bind.push_str(":Z"); // SELinux relabeling
+        }
+        binds.push(bind);
+
+        // Without this the image's default $HOME (usually /root) is used and the mount is ignored
+        if !env.iter().any(|e| e.starts_with("HOME=")) {
+            env.push(format!("HOME={}", VESSEL_HOME));
+        }
+    }
+
     let network_mode = if payload.disable_network {
         Some("none".to_string())
     } else {
@@ -197,7 +246,16 @@ pub async fn create_vessel(
         platform: None,
     };
 
-    let container = docker.create_container(Some(options), config).await.map_err(|e| format!("Create container failed: {}", e))?;
+    let container = match docker.create_container(Some(options), config).await {
+        Ok(c) => c,
+        Err(e) => {
+            // e.g. name already taken — don't leave an orphaned home behind
+            if let Some(dir) = created_vessel_dir {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+            return Err(format!("Create container failed: {}", e));
+        }
+    };
     docker.start_container::<String>(&container.id, None).await.map_err(|e| format!("Start container failed: {}", e))?;
 
     Ok(())
@@ -295,10 +353,33 @@ pub async fn stop_vessel(state: State<'_, AppState>, id: String) -> Result<(), S
     docker.stop_container(&id, None).await.map_err(|e| e.to_string())
 }
 
+/// Force-removes the container and its isolated home directory.
+/// Returns a warning if the container was removed but its home could not be.
 #[tauri::command]
-pub async fn delete_vessel(state: State<'_, AppState>, id: String) -> Result<(), String> {
+pub async fn delete_vessel(state: State<'_, AppState>, id: String) -> Result<Option<String>, String> {
     let docker = state.get_client().await?;
-    docker.remove_container(&id, Some(RemoveContainerOptions { force: true, ..Default::default() })).await.map_err(|e| e.to_string())
+
+    // Look up the home before removal — the binds are gone once the container is
+    let vessel_dir = docker
+        .inspect_container(&id, None::<InspectContainerOptions>)
+        .await
+        .ok()
+        .and_then(|info| info.host_config?.binds)
+        .and_then(|binds| isolated_vessel_dir(&binds));
+
+    docker.remove_container(&id, Some(RemoveContainerOptions { force: true, ..Default::default() })).await.map_err(|e| e.to_string())?;
+
+    if let Some(dir) = vessel_dir {
+        if let Err(e) = std::fs::remove_dir_all(&dir) {
+            // Typically root-owned files written by a rootful Docker container
+            return Ok(Some(format!(
+                "Vessel removed, but its home directory {} could not be deleted: {}",
+                dir.display(),
+                e
+            )));
+        }
+    }
+    Ok(None)
 }
 
 #[tauri::command]

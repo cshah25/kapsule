@@ -114,8 +114,12 @@
     const id = pendingDeleteId;
     isDeleting = true;
     try {
-      await invoke("delete_vessel", { id });
-      toast.success("Vessel deleted");
+      const warning = await invoke<string | null>("delete_vessel", { id });
+      if (warning) {
+        toast.error(warning);
+      } else {
+        toast.success("Vessel deleted");
+      }
       await fetchVessels();
     } catch (err) {
       toast.error(`Failed to delete: ${err}`);
