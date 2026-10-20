@@ -109,56 +109,53 @@
   // ---------------------------------------------------------------------------
   // Handlers
   // ---------------------------------------------------------------------------
-  async function handleStart(id: string) {
+  // In-flight action per vessel id (e.g. "Stopping…"). Stop can take up to the
+  // engine's 10s timeout, so the card needs to show something is happening.
+  let busy = $state<Record<string, string>>({});
+
+  function nameOf(id: string): string {
+    return vessels.find((v) => v.id === id)?.name || id.slice(0, 12);
+  }
+
+  async function vesselAction(id: string, command: string, busyLabel: string, doneVerb: string, failVerb: string) {
+    if (busy[id]) return;
+    const name = nameOf(id);
+    busy[id] = busyLabel;
     try {
-      await invoke("start_vessel", { id });
-      toast.success("Vessel started");
+      await invoke(command, { id });
+      toast.success(`${name} ${doneVerb}`);
       await fetchVessels();
     } catch (err) {
-      toast.error(`Failed to start: ${err}`);
+      toast.error(`Failed to ${failVerb} ${name}: ${err}`);
+    } finally {
+      delete busy[id];
     }
   }
 
-  async function handleResume(id: string) {
-    try {
-      await invoke("resume_vessel", { id });
-      toast.success("Vessel resumed");
-      await fetchVessels();
-    } catch (err) {
-      toast.error(`Failed to resume: ${err}`);
-    }
-  }
-
-  async function handleStop(id: string) {
-    try {
-      await invoke("stop_vessel", { id });
-      toast.success("Vessel stopped");
-      await fetchVessels();
-    } catch (err) {
-      toast.error(`Failed to stop: ${err}`);
-    }
-  }
+  const handleStart = (id: string) => vesselAction(id, "start_vessel", "Starting…", "started", "start");
+  const handleResume = (id: string) => vesselAction(id, "resume_vessel", "Resuming…", "resumed", "resume");
+  const handleStop = (id: string) => vesselAction(id, "stop_vessel", "Stopping…", "stopped", "stop");
 
   function handleDeleteRequest(id: string) {
-    const vessel = vessels.find(v => v.id === id);
     pendingDeleteId = id;
-    pendingDeleteName = vessel?.name || id.slice(0, 12);
+    pendingDeleteName = nameOf(id);
   }
 
   async function confirmDelete() {
     if (!pendingDeleteId) return;
     const id = pendingDeleteId;
+    const name = pendingDeleteName;
     isDeleting = true;
     try {
       const warning = await invoke<string | null>("delete_vessel", { id });
       if (warning) {
         toast.error(warning);
       } else {
-        toast.success("Vessel deleted");
+        toast.success(`${name} deleted`);
       }
       await fetchVessels();
     } catch (err) {
-      toast.error(`Failed to delete: ${err}`);
+      toast.error(`Failed to delete ${name}: ${err}`);
     } finally {
       isDeleting = false;
       pendingDeleteId = null;
@@ -171,9 +168,9 @@
     pendingDeleteName = null;
   }
 
-  function handleTerminal(id: string) {
+  function handleLogs(id: string) {
     activeTerminalId = id;
-    activeTerminalName = vessels.find((v) => v.id === id)?.name || id;
+    activeTerminalName = nameOf(id);
   }
 
   function handleAddVessel() {
@@ -281,7 +278,8 @@
           onResume={handleResume}
           onStop={handleStop}
           onDelete={handleDeleteRequest}
-          onTerminal={handleTerminal}
+          onLogs={handleLogs}
+          busyLabel={busy[vessel.id]}
         />
       {/each}
     </div>

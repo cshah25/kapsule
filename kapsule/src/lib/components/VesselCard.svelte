@@ -5,7 +5,7 @@
    * Displays:
    *  - Name, image tag, status badge
    *  - Real-time CPU/RAM meters (animated SVG arcs)
-   *  - Action buttons: Start/Stop, Terminal, Delete
+   *  - Action buttons: Start/Stop/Resume, Logs, Delete
    */
   import type { VesselInfo } from "$lib/types";
   import { invoke } from "@tauri-apps/api/core";
@@ -17,10 +17,12 @@
     onResume?: (id: string) => void;
     onStop?: (id: string) => void;
     onDelete?: (id: string) => void;
-    onTerminal?: (id: string) => void;
+    onLogs?: (id: string) => void;
+    /** Set while an action is in flight (e.g. "Stopping…"); disables the actions. */
+    busyLabel?: string;
   }
 
-  let { vessel, onStart, onResume, onStop, onDelete, onTerminal }: Props = $props();
+  let { vessel, onStart, onResume, onStop, onDelete, onLogs, busyLabel }: Props = $props();
 
   // ---------------------------------------------------------------------------
   // SVG arc meter helpers
@@ -47,6 +49,16 @@
   const memStyle = $derived(arcStyle(memPercent, "var(--color-kap-success)"));
 
   const isRunning = $derived(vessel.status === "running");
+
+  // One main action per state; restarting containers are usually crash-looping,
+  // so stopping them is the useful action
+  const primary = $derived(
+    vessel.status === "running" || vessel.status === "restarting"
+      ? { label: "Stop", run: onStop, style: "btn-ghost", icon: "stop" }
+      : vessel.status === "paused"
+        ? { label: "Resume", run: onResume, style: "btn-primary", icon: "play" }
+        : { label: "Start", run: onStart, style: "btn-primary", icon: "play" }
+  );
 
   const idleMessage: Record<string, string> = {
     paused: "Container is paused",
@@ -129,58 +141,42 @@
 
   <!-- Action buttons -->
   <div class="flex items-center flex-wrap gap-2 pt-1 mt-auto border-t border-[var(--color-kap-border)]">
-    {#if isRunning}
-      <button
-        id="btn-stop-{vessel.id}"
-        class="btn btn-ghost text-xs py-1 px-2.5 flex-1 justify-center min-w-[70px]"
-        onclick={() => onStop?.(vessel.id)}
-      >
-        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
-        Stop
-      </button>
-      <button
-        id="btn-terminal-{vessel.id}"
-        class="btn btn-ghost text-xs py-1 px-2.5 flex-1 justify-center min-w-[70px]"
-        onclick={() => onTerminal?.(vessel.id)}
-      >
-        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
-        </svg>
-        Shell
-      </button>
-    {:else if vessel.status === "paused"}
-      <button
-        id="btn-resume-{vessel.id}"
-        class="btn btn-primary text-xs py-1 px-2.5 flex-1 justify-center min-w-[70px]"
-        onclick={() => onResume?.(vessel.id)}
-      >
-        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        Resume
-      </button>
-    {:else if vessel.status === "restarting"}
-      <!-- Likely crash-looping; stopping is the useful action -->
-      <button
-        id="btn-stop-{vessel.id}"
-        class="btn btn-ghost text-xs py-1 px-2.5 flex-1 justify-center min-w-[70px]"
-        onclick={() => onStop?.(vessel.id)}
-      >
-        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
-        Stop
-      </button>
-    {:else}
-      <button
-        id="btn-start-{vessel.id}"
-        class="btn btn-primary text-xs py-1 px-2.5 flex-1 justify-center min-w-[70px]"
-        onclick={() => onStart?.(vessel.id)}
-      >
-        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        Start
-      </button>
-    {/if}
+    <button
+      id="btn-{primary.label.toLowerCase()}-{vessel.id}"
+      class="btn {primary.style} text-xs py-1 px-2.5 flex-1 justify-center min-w-[70px] disabled:opacity-60 disabled:cursor-wait"
+      onclick={() => primary.run?.(vessel.id)}
+      disabled={!!busyLabel}
+    >
+      {#if busyLabel}
+        <span class="w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin"></span>
+        {busyLabel}
+      {:else}
+        {#if primary.icon === "stop"}
+          <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+        {:else}
+          <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        {/if}
+        {primary.label}
+      {/if}
+    </button>
+    <!-- Available in every state: logs matter most after a crash -->
+    <button
+      id="btn-logs-{vessel.id}"
+      class="btn btn-ghost text-xs py-1 px-2.5 flex-1 justify-center min-w-[70px]"
+      onclick={() => onLogs?.(vessel.id)}
+      title="View container output"
+    >
+      <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+        <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+      </svg>
+      Logs
+    </button>
     <button
       id="btn-delete-{vessel.id}"
-      class="btn btn-ghost text-xs py-1 px-2 shrink-0 text-[var(--color-kap-destruct)] hover:bg-[color-mix(in_srgb,var(--color-kap-destruct)_15%,transparent)]"
+      class="btn btn-ghost text-xs py-1 px-2 shrink-0 text-[var(--color-kap-destruct)] hover:bg-[color-mix(in_srgb,var(--color-kap-destruct)_15%,transparent)] disabled:opacity-40"
       onclick={() => onDelete?.(vessel.id)}
+      disabled={!!busyLabel}
       title="Delete vessel"
     >
       <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

@@ -483,6 +483,8 @@ pub async fn stream_vessel_logs(
                 Err(_) => break,
             }
         }
+        // Reached when the container isn't (or stops) running; aborts skip this
+        let _ = on_message.send("\n\x1b[90m— end of logs: container is not running —\x1b[0m\n".to_string());
     });
 
     // The webview keeps the channel alive, so `send` rarely fails on its own —
