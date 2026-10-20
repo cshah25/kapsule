@@ -35,11 +35,11 @@
   {
     packages.${system}.default = pkgs.stdenv.mkDerivation {
       pname = "kapsule";
-      version = "2.1.1";
+      version = "3.0.0";
       
       src = pkgs.fetchurl {
-        url = "https://github.com/cshah25/kapsule/releases/download/v2.2.0/kapsule_2.1.1_amd64.deb";
-        sha256 = "sha256-y3TEy1Lh/2rjqA0/xHRlBGlfFivFAeFjM66nTWATwXw=";
+        url = "https://github.com/cshah25/kapsule/releases/download/v3.0.0/kapsule_3.0.0_amd64.deb";
+        sha256 = "sha256-LeUsQXn+HzdrpPY9pjQM3i0aZ9FwwosmW03ZCnXUOaQ=";
       };
 
       nativeBuildInputs = [
