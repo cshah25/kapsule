@@ -8,7 +8,7 @@
    *  - Action buttons: Start/Stop/Resume, Logs, Delete
    */
   import type { VesselInfo } from "$lib/types";
-  import { invoke } from "@tauri-apps/api/core";
+  import { openUrl } from "@tauri-apps/plugin-opener";
   import { toast } from "$lib/stores/toast.svelte";
 
   interface Props {
@@ -49,6 +49,14 @@
   const memStyle = $derived(arcStyle(memPercent, "var(--color-kap-success)"));
 
   const isRunning = $derived(vessel.status === "running");
+
+  async function openPort(hostPort: number) {
+    try {
+      await openUrl(`http://localhost:${hostPort}`);
+    } catch (err) {
+      toast.error(`Couldn't open localhost:${hostPort}: ${err}`);
+    }
+  }
 
   // One main action per state; restarting containers are usually crash-looping,
   // so stopping them is the useful action
@@ -136,6 +144,24 @@
   {:else}
     <div class="h-14 flex items-center justify-center text-xs text-[var(--color-kap-muted)]">
       {idleMessage[vessel.status] ?? "Container is stopped"}
+    </div>
+  {/if}
+
+  <!-- Published ports (engines only report these while the container runs) -->
+  {#if vessel.ports.length > 0}
+    <div class="flex flex-wrap gap-1.5">
+      {#each vessel.ports as port (`${port.host_port}-${port.container_port}`)}
+        <button
+          class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-mono bg-[var(--color-kap-surface2)] text-[var(--color-kap-text-dim)] hover:text-[var(--color-kap-accent)] hover:bg-[color-mix(in_srgb,var(--color-kap-accent)_12%,transparent)] transition-colors"
+          onclick={() => openPort(port.host_port)}
+          title="Open http://localhost:{port.host_port} in your browser{port.exposed_lan ? ' — also reachable from other devices on your network' : ''}"
+        >
+          :{port.host_port} → {port.container_port}
+          {#if port.exposed_lan}
+            <span class="font-sans font-semibold text-[9px] uppercase text-[var(--color-kap-warning)]">LAN</span>
+          {/if}
+        </button>
+      {/each}
     </div>
   {/if}
 

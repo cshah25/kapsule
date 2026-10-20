@@ -309,6 +309,8 @@
   {/if}
 </div>
 
+<svelte:window onkeydown={(e) => { if (pendingDeleteId && !isDeleting && e.key === "Escape") cancelDelete(); }} />
+
 <!-- Delete confirmation dialog -->
 {#if pendingDeleteId}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->

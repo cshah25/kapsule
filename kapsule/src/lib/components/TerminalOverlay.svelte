@@ -102,9 +102,15 @@
   onDestroy(closeTerminal);
 </script>
 
+<svelte:window onkeydown={(e) => { if (vesselId && e.key === "Escape") onClose(); }} />
+
 {#if vesselId}
-  <div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-8 animate-fade-in">
-    <div class="bg-[var(--color-kap-window)] rounded-xl w-full max-w-4xl h-full max-h-[70vh] shadow-2xl flex flex-col overflow-hidden border border-white/10">
+  <!-- Read-only view, so a backdrop click can safely close it -->
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-8 animate-fade-in" onclick={onClose}>
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div class="bg-[var(--color-kap-window)] rounded-xl w-full max-w-4xl h-full max-h-[70vh] shadow-2xl flex flex-col overflow-hidden border border-white/10"
+         onclick={(e) => e.stopPropagation()}>
       
       <div class="flex items-center justify-between px-4 py-2 border-b border-white/10 bg-[#1e1e1e]">
         <div class="flex items-center gap-2">

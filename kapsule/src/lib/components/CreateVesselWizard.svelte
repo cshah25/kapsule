@@ -22,6 +22,15 @@
   });
 
   let isSubmitting = $state(false);
+  /** Shown in the footer when closing would throw away what the user entered. */
+  let confirmDiscard = $state(false);
+
+  // The image alone doesn't count: it is often prefilled rather than typed
+  const isDirty = $derived(
+    !!form.name ||
+    form.env_vars.length > 0 || form.ports.length > 0 || form.mounts.length > 0 ||
+    !form.isolated_home || form.volatile || form.disable_network
+  );
   let errorMsg = $state("");
   let localImages = $state<string[]>([]);
   let isImageDropdownOpen = $state(false);
@@ -42,6 +51,7 @@
       // Only react to opening; consuming wizardImage below must not re-trigger this
       untrack(() => {
         errorMsg = "";
+        confirmDiscard = false;
         if (uiState.wizardImage) {
           form.image = uiState.wizardImage;
           if (!form.name) form.name = suggestName(uiState.wizardImage);
@@ -84,20 +94,57 @@
       await invoke("create_vessel", { payload: form });
       onSuccess();
       onClose();
-      form = {
-        name: "",
-        image: form.image,
-        isolated_home: true,
-        volatile: false,
-        disable_network: false,
-        env_vars: [],
-        ports: [],
-        mounts: [],
-      };
+      resetForm();
     } catch (err: any) {
       errorMsg = err.toString();
     } finally {
       isSubmitting = false;
+    }
+  }
+
+  /** Clear everything except the image, which is handy to reuse for the next vessel. */
+  function resetForm() {
+    form = {
+      name: "",
+      image: form.image,
+      isolated_home: true,
+      volatile: false,
+      disable_network: false,
+      env_vars: [],
+      ports: [],
+      mounts: [],
+    };
+  }
+
+  /** Close via X / Cancel / Esc. Asks first if that would discard user input. */
+  function requestClose() {
+    if (isSubmitting) return;
+    if (isDirty && !confirmDiscard) {
+      confirmDiscard = true;
+      return;
+    }
+    confirmDiscard = false;
+    resetForm();
+    onClose();
+  }
+
+  function handleWindowKeydown(e: KeyboardEvent) {
+    if (!isOpen || e.key !== "Escape") return;
+    if (isImageDropdownOpen) {
+      isImageDropdownOpen = false;
+    } else if (confirmDiscard) {
+      confirmDiscard = false; // Esc on the prompt means "keep editing"
+    } else {
+      requestClose();
+    }
+  }
+
+  /** Enter in a text field submits, unless it's picking from the image list. */
+  function handleFormKeydown(e: KeyboardEvent) {
+    const target = e.target as HTMLElement;
+    if (e.key === "Enter" && target instanceof HTMLInputElement && target.type !== "checkbox"
+        && !isImageDropdownOpen && !isSubmitting) {
+      handleSubmit(e);
     }
   }
 
@@ -150,17 +197,23 @@
   }
 </script>
 
+<svelte:window onkeydown={handleWindowKeydown} />
+
 {#if isOpen}
-  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in" onclick={onClose}>
+  <!-- No backdrop click-to-close: a stray click shouldn't throw away a half-filled form -->
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
     <div 
       class="bg-[var(--color-kap-surface)] w-full max-w-2xl rounded-xl shadow-2xl border border-white/10 flex flex-col max-h-[90vh] overflow-hidden"
-      onclick={(e) => e.stopPropagation()}
+      role="dialog"
+      tabindex="-1"
+      aria-modal="true"
+      aria-labelledby="wizard-title"
+      onkeydown={handleFormKeydown}
     >
       <!-- Header -->
       <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between bg-[var(--color-kap-surface)] z-10">
-        <h2 class="text-lg font-semibold m-0">Create Vessel</h2>
-        <button aria-label="Close wizard" class="btn btn-ghost p-1 rounded-full text-white/50 hover:text-white" onclick={onClose}>
+        <h2 id="wizard-title" class="text-lg font-semibold m-0">Create Vessel</h2>
+        <button aria-label="Close wizard" class="btn btn-ghost p-1 rounded-full text-white/50 hover:text-white" onclick={requestClose}>
           <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
       </div>
@@ -280,12 +333,12 @@
             
             <div class="p-4 flex items-center justify-between">
               <div>
-                <p class="font-medium text-sm text-[var(--color-kap-destruct)]">Air-Gap (Disable Network)</p>
+                <p class="font-medium text-sm">Air-Gap (Disable Network)</p>
                 <p class="text-xs text-white/50 mt-0.5">Run without any internet or host network access.</p>
               </div>
               <label class="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" bind:checked={form.disable_network} class="sr-only peer">
-                <div class="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-kap-destruct)]"></div>
+                <div class="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-kap-accent)]"></div>
               </label>
             </div>
           </div>
@@ -392,15 +445,21 @@
       </div>
 
       <!-- Footer Actions -->
-      <div class="p-4 border-t border-white/10 bg-[var(--color-kap-surface)] flex justify-end gap-3 z-10">
-        <button class="btn btn-ghost px-6" onclick={onClose} disabled={isSubmitting}>Cancel</button>
-        <button class="btn btn-primary px-8" onclick={handleSubmit} disabled={isSubmitting}>
-          {#if isSubmitting}
-            {isLocalImage ? "Creating…" : "Pulling image & creating…"}
-          {:else}
-            {isLocalImage ? "Launch Vessel" : "Pull & Launch"}
-          {/if}
-        </button>
+      <div class="p-4 border-t border-white/10 bg-[var(--color-kap-surface)] flex items-center justify-end gap-3 z-10">
+        {#if confirmDiscard}
+          <span class="text-sm text-[var(--color-kap-text-dim)] mr-auto animate-fade-in">Discard this vessel's settings?</span>
+          <button class="btn btn-ghost px-4" onclick={() => confirmDiscard = false}>Keep editing</button>
+          <button class="btn btn-danger px-4" onclick={requestClose}>Discard</button>
+        {:else}
+          <button class="btn btn-ghost px-6" onclick={requestClose} disabled={isSubmitting}>Cancel</button>
+          <button class="btn btn-primary px-8" onclick={handleSubmit} disabled={isSubmitting}>
+            {#if isSubmitting}
+              {isLocalImage ? "Creating…" : "Pulling image & creating…"}
+            {:else}
+              {isLocalImage ? "Launch Vessel" : "Pull & Launch"}
+            {/if}
+          </button>
+        {/if}
       </div>
 
     </div>

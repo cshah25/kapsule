@@ -2,7 +2,8 @@
   import { toast } from "$lib/stores/toast.svelte";
 </script>
 
-<div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+<div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-md"
+     role="region" aria-live="polite" aria-label="Notifications">
   {#each toast.toasts as t (t.id)}
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -11,6 +12,8 @@
              {t.type === 'error' ? 'bg-[var(--color-kap-destruct)] text-white' : 
               t.type === 'success' ? 'bg-[var(--color-kap-success)] text-white' : 
               'bg-[var(--color-kap-surface2)] border border-[var(--color-kap-border)] text-[var(--color-kap-text)]'}"
+      role={t.type === 'error' ? 'alert' : 'status'}
+      title="Click to dismiss"
       onclick={() => toast.remove(t.id)}
     >
       {#if t.type === 'error'}

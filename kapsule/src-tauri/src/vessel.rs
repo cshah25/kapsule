@@ -58,6 +58,14 @@ pub struct VesselStats {
     pub mem_limit_mb: f64,
 }
 
+#[derive(Serialize, Clone, PartialEq)]
+pub struct PublishedPort {
+    pub host_port: u16,
+    pub container_port: u16,
+    /// Bound on all interfaces (reachable from the LAN), not just loopback.
+    pub exposed_lan: bool,
+}
+
 #[derive(Serialize, Clone)]
 pub struct VesselInfo {
     pub id: String,
@@ -67,6 +75,7 @@ pub struct VesselInfo {
     pub cpu_percent: f64,
     pub mem_used_mb: f64,
     pub mem_limit_mb: f64,
+    pub ports: Vec<PublishedPort>,
 }
 
 // ---------------------------------------------------------------------------
@@ -341,6 +350,22 @@ pub async fn list_vessels(state: State<'_, AppState>) -> Result<Vec<VesselInfo>,
             Some("exited") | Some("created") => "stopped",
             _ => "error", // "dead", "removing", or unknown
         };
+        // Engines list a binding once per address family (0.0.0.0 and ::), so dedupe
+        let mut ports: Vec<PublishedPort> = Vec::new();
+        for p in c.ports.iter().flatten() {
+            let Some(host_port) = p.public_port else { continue };
+            let ip = p.ip.as_deref().unwrap_or("");
+            let port = PublishedPort {
+                host_port,
+                container_port: p.private_port,
+                exposed_lan: ip == "0.0.0.0" || ip == "::" || ip.is_empty(),
+            };
+            if !ports.contains(&port) {
+                ports.push(port);
+            }
+        }
+        ports.sort_by_key(|p| p.host_port);
+
         VesselInfo {
             id: c.id.clone().unwrap_or_default(),
             name,
@@ -349,6 +374,7 @@ pub async fn list_vessels(state: State<'_, AppState>) -> Result<Vec<VesselInfo>,
             cpu_percent: 0.0,
             mem_used_mb: 0.0,
             mem_limit_mb: 0.0,
+            ports,
         }
     }).collect();
 
