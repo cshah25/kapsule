@@ -1,6 +1,6 @@
 {
   "name": "kapsule",
-  "version": "2.1.1",
+  "version": "3.0.0",
   "description": "A security-first container management tool for Linux",
   "type": "module",
   "scripts": {
@@ -13,6 +13,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@fontsource/inter": "^5.3.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
     "@xterm/addon-fit": "^0.11.0",

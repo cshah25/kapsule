@@ -5,7 +5,7 @@
  * the Tauri backend and the Svelte frontend.
  */
 
-export type VesselStatus = "running" | "stopped" | "error";
+export type VesselStatus = "running" | "paused" | "restarting" | "stopped" | "error";
 
 export interface VesselInfo {
   id: string;
@@ -15,4 +15,12 @@ export interface VesselInfo {
   cpu_percent: number;
   mem_used_mb: number;
   mem_limit_mb: number;
+  ports: PublishedPort[];
+}
+
+export interface PublishedPort {
+  host_port: number;
+  container_port: number;
+  /** Bound on all interfaces (reachable from the LAN), not just loopback. */
+  exposed_lan: boolean;
 }

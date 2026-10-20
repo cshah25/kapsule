@@ -8,7 +8,7 @@
   import VesselCard from "$lib/components/VesselCard.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import TerminalOverlay from "$lib/components/TerminalOverlay.svelte";
-  import { engineStatus, activeEngine } from "$lib/stores/engine";
+  import { engineStatus, activeEngine, engineLoading, detectEngines } from "$lib/stores/engine";
   import { uiState } from "$lib/stores/ui.svelte";
   import { toast } from "$lib/stores/toast.svelte";
   import { invoke } from "@tauri-apps/api/core";
@@ -16,7 +16,7 @@
 
   let vessels = $state<VesselInfo[]>([]);
   let isLoading = $state(true);
-  let pollInterval: ReturnType<typeof setInterval>;
+  let loadError = $state<string | null>(null);
   let activeTerminalId = $state<string | null>(null);
   let activeTerminalName = $state<string | null>(null);
 
@@ -25,52 +25,78 @@
   let pendingDeleteName = $state<string | null>(null);
   let isDeleting = $state(false);
 
-  async function fetchVessels() {
-    if ($activeEngine) {
-      try {
-        const newVessels = await invoke<VesselInfo[]>("list_vessels");
-        // Preserve existing stats if we have them so they don't flash to 0
-        vessels = newVessels.map(v => {
-          const existing = vessels.find(ev => ev.id === v.id);
-          if (existing) {
-            v.cpu_percent = existing.cpu_percent;
-            v.mem_used_mb = existing.mem_used_mb;
-            v.mem_limit_mb = existing.mem_limit_mb;
-          }
-          return v;
-        });
-        
-        isLoading = false;
+  // Each fetch takes a sequence number; only the newest one may write state.
+  // A slow poll that finishes after a Start/Stop refresh would otherwise
+  // overwrite the fresh list with stale data.
+  let fetchSeq = 0;
 
-        // Lazy load stats for running containers
-        const stats = await invoke<Record<string, {cpu_percent: number, mem_used_mb: number, mem_limit_mb: number}>>("get_all_vessel_stats");
-        vessels = vessels.map(v => {
-          if (stats[v.id]) {
-            v.cpu_percent = stats[v.id].cpu_percent;
-            v.mem_used_mb = stats[v.id].mem_used_mb;
-            v.mem_limit_mb = stats[v.id].mem_limit_mb;
-          }
-          return v;
-        });
-      } catch (err) {
-        console.error("Failed to fetch vessels:", err);
-      } finally {
+  async function fetchVessels() {
+    if (!$activeEngine) {
+      // Engine detection finished but none is selected
+      if ($engineStatus !== null) isLoading = false;
+      return;
+    }
+    const seq = ++fetchSeq;
+
+    let newVessels: VesselInfo[];
+    try {
+      newVessels = await invoke<VesselInfo[]>("list_vessels");
+    } catch (err) {
+      if (seq === fetchSeq) {
+        loadError = String(err);
         isLoading = false;
       }
-    } else if ($engineStatus !== null) {
-      // We know engine detection finished but none is selected
-      isLoading = false;
+      return;
+    }
+    if (seq !== fetchSeq) return;
+
+    // Preserve existing stats if we have them so they don't flash to 0
+    vessels = newVessels.map(v => {
+      const existing = vessels.find(ev => ev.id === v.id);
+      if (existing) {
+        v.cpu_percent = existing.cpu_percent;
+        v.mem_used_mb = existing.mem_used_mb;
+        v.mem_limit_mb = existing.mem_limit_mb;
+      }
+      return v;
+    });
+    loadError = null;
+    isLoading = false;
+
+    // Lazy load stats for running containers; failures here aren't worth surfacing
+    try {
+      const stats = await invoke<Record<string, {cpu_percent: number, mem_used_mb: number, mem_limit_mb: number}>>("get_all_vessel_stats");
+      if (seq !== fetchSeq) return;
+      vessels = vessels.map(v => {
+        if (stats[v.id]) {
+          v.cpu_percent = stats[v.id].cpu_percent;
+          v.mem_used_mb = stats[v.id].mem_used_mb;
+          v.mem_limit_mb = stats[v.id].mem_limit_mb;
+        }
+        return v;
+      });
+    } catch (err) {
+      console.error("Failed to fetch vessel stats:", err);
     }
   }
 
   onMount(() => {
-    fetchVessels();
-    pollInterval = setInterval(fetchVessels, 3000);
+    // Schedule the next poll only after the previous one finishes, so slow
+    // stats calls (~1-2s each) can't pile up into overlapping requests
+    let stopped = false;
+    let pollTimer: ReturnType<typeof setTimeout>;
+    async function poll() {
+      await fetchVessels();
+      if (!stopped) pollTimer = setTimeout(poll, 3000);
+    }
+    poll();
+
     const handler = () => fetchVessels();
     document.addEventListener('refresh-vessels', handler);
     return () => {
+      stopped = true;
+      clearTimeout(pollTimer);
       document.removeEventListener('refresh-vessels', handler);
-      if (pollInterval) clearInterval(pollInterval);
     };
   });
 
@@ -83,42 +109,53 @@
   // ---------------------------------------------------------------------------
   // Handlers
   // ---------------------------------------------------------------------------
-  async function handleStart(id: string) {
+  // In-flight action per vessel id (e.g. "Stopping…"). Stop can take up to the
+  // engine's 10s timeout, so the card needs to show something is happening.
+  let busy = $state<Record<string, string>>({});
+
+  function nameOf(id: string): string {
+    return vessels.find((v) => v.id === id)?.name || id.slice(0, 12);
+  }
+
+  async function vesselAction(id: string, command: string, busyLabel: string, doneVerb: string, failVerb: string) {
+    if (busy[id]) return;
+    const name = nameOf(id);
+    busy[id] = busyLabel;
     try {
-      await invoke("start_vessel", { id });
-      toast.success("Vessel started");
+      await invoke(command, { id });
+      toast.success(`${name} ${doneVerb}`);
       await fetchVessels();
     } catch (err) {
-      toast.error(`Failed to start: ${err}`);
+      toast.error(`Failed to ${failVerb} ${name}: ${err}`);
+    } finally {
+      delete busy[id];
     }
   }
 
-  async function handleStop(id: string) {
-    try {
-      await invoke("stop_vessel", { id });
-      toast.success("Vessel stopped");
-      await fetchVessels();
-    } catch (err) {
-      toast.error(`Failed to stop: ${err}`);
-    }
-  }
+  const handleStart = (id: string) => vesselAction(id, "start_vessel", "Starting…", "started", "start");
+  const handleResume = (id: string) => vesselAction(id, "resume_vessel", "Resuming…", "resumed", "resume");
+  const handleStop = (id: string) => vesselAction(id, "stop_vessel", "Stopping…", "stopped", "stop");
 
   function handleDeleteRequest(id: string) {
-    const vessel = vessels.find(v => v.id === id);
     pendingDeleteId = id;
-    pendingDeleteName = vessel?.name || id.slice(0, 12);
+    pendingDeleteName = nameOf(id);
   }
 
   async function confirmDelete() {
     if (!pendingDeleteId) return;
     const id = pendingDeleteId;
+    const name = pendingDeleteName;
     isDeleting = true;
     try {
-      await invoke("delete_vessel", { id });
-      toast.success("Vessel deleted");
+      const warning = await invoke<string | null>("delete_vessel", { id });
+      if (warning) {
+        toast.error(warning);
+      } else {
+        toast.success(`${name} deleted`);
+      }
       await fetchVessels();
     } catch (err) {
-      toast.error(`Failed to delete: ${err}`);
+      toast.error(`Failed to delete ${name}: ${err}`);
     } finally {
       isDeleting = false;
       pendingDeleteId = null;
@@ -131,9 +168,16 @@
     pendingDeleteName = null;
   }
 
-  function handleTerminal(id: string) {
+  function handleLogs(id: string) {
     activeTerminalId = id;
-    activeTerminalName = vessels.find((v) => v.id === id)?.name || id;
+    activeTerminalName = nameOf(id);
+  }
+
+  /** Re-probe sockets (e.g. after fixing permissions or starting the daemon) without restarting the app. */
+  async function retryDetection() {
+    await detectEngines();
+    // Same engine as before won't re-trigger the $activeEngine effect, so refresh explicitly
+    await fetchVessels();
   }
 
   function handleAddVessel() {
@@ -189,6 +233,14 @@
         <p class="text-xs font-medium text-[var(--color-kap-warning)]">
           No container engine detected
         </p>
+        <button class="btn btn-ghost text-xs py-1 px-2.5 ml-auto shrink-0" onclick={retryDetection} disabled={$engineLoading}>
+          {#if $engineLoading}
+            <span class="w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin"></span>
+            Detecting…
+          {:else}
+            Retry detection
+          {/if}
+        </button>
       </div>
       {#if $engineStatus.diagnostics && $engineStatus.diagnostics.length > 0}
         <div class="flex flex-col gap-2 pl-7">
@@ -207,13 +259,37 @@
     </div>
   {/if}
 
+  <!-- Engine unreachable banner (vessels below, if any, are the last known state) -->
+  {#if loadError && $activeEngine}
+    <div class="kap-card p-4 flex items-start gap-3"
+         style="border-color: var(--color-kap-destruct); background: color-mix(in srgb, var(--color-kap-destruct) 8%, var(--color-kap-surface));">
+      <svg class="w-4 h-4 shrink-0 mt-0.5 text-[var(--color-kap-destruct)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <div class="flex flex-col gap-1 min-w-0">
+        <p class="text-xs font-medium text-[var(--color-kap-destruct)]">
+          Couldn't load vessels from <span class="capitalize">{$activeEngine}</span> — is the daemon running? Retrying every few seconds.
+        </p>
+        <p class="text-xs font-mono text-[var(--color-kap-text-dim)]" style="word-break: break-word;">{loadError}</p>
+      </div>
+      <button class="btn btn-ghost text-xs py-1 px-2.5 ml-auto shrink-0" onclick={retryDetection} disabled={$engineLoading}>
+        {#if $engineLoading}
+          <span class="w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin"></span>
+          Detecting…
+        {:else}
+          Retry detection
+        {/if}
+      </button>
+    </div>
+  {/if}
+
   <!-- Vessel grid or empty state -->
   {#if isLoading}
     <div class="flex flex-col items-center justify-center h-64 gap-4 animate-fade-in">
       <div class="w-8 h-8 rounded-full border-2 border-white/10 border-t-[var(--color-kap-accent)] animate-spin"></div>
       <span class="text-sm text-[var(--color-kap-muted)]">Loading vessels...</span>
     </div>
-  {:else if vessels.length === 0}
+  {:else if vessels.length === 0 && !loadError}
     <EmptyState onAddVessel={handleAddVessel} />
   {:else}
     <div class="grid gap-4"
@@ -222,14 +298,18 @@
         <VesselCard
           {vessel}
           onStart={handleStart}
+          onResume={handleResume}
           onStop={handleStop}
           onDelete={handleDeleteRequest}
-          onTerminal={handleTerminal}
+          onLogs={handleLogs}
+          busyLabel={busy[vessel.id]}
         />
       {/each}
     </div>
   {/if}
 </div>
+
+<svelte:window onkeydown={(e) => { if (pendingDeleteId && !isDeleting && e.key === "Escape") cancelDelete(); }} />
 
 <!-- Delete confirmation dialog -->
 {#if pendingDeleteId}

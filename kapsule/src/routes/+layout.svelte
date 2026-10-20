@@ -7,6 +7,12 @@
    *  2. Run engine auto-detection on mount
    *  3. Render HeaderBar + Sidebar + main content area
    */
+  // Bundled rather than fetched from Google Fonts so the app works offline
+  // and the CSP doesn't need to allow third-party origins
+  import "@fontsource/inter/400.css";
+  import "@fontsource/inter/500.css";
+  import "@fontsource/inter/600.css";
+  import "@fontsource/inter/700.css";
   import "../app.css";
   import { onMount } from "svelte";
   import HeaderBar from "$lib/components/HeaderBar.svelte";
@@ -15,6 +21,8 @@
   import Toaster from "$lib/components/Toaster.svelte";
   import { detectEngines } from "$lib/stores/engine";
   import { uiState } from "$lib/stores/ui.svelte";
+  import { page } from "$app/state";
+  import { goto } from "$app/navigation";
 
   interface Props {
     children: import("svelte").Snippet;
@@ -43,5 +51,9 @@
 <CreateVesselWizard 
   isOpen={uiState.isWizardOpen} 
   onClose={() => uiState.isWizardOpen = false} 
-  onSuccess={() => document.dispatchEvent(new CustomEvent('refresh-vessels'))} 
+  onSuccess={() => {
+    // The wizard can be opened from the Library; show the new vessel on the dashboard
+    if (page.url.pathname !== "/") goto("/");
+    else document.dispatchEvent(new CustomEvent('refresh-vessels'));
+  }} 
 />

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { untrack } from "svelte";
   import { goto } from "$app/navigation";
   import { uiState } from "$lib/stores/ui.svelte";
 
@@ -16,20 +17,56 @@
     volatile: false,
     disable_network: false,
     env_vars: [] as { key: string; value: string }[],
-    ports: [] as { host: number; container: number }[],
+    ports: [] as { host: number; container: number; expose_lan: boolean }[],
     mounts: [] as { host_path: string; container_path: string; read_only: boolean; isDropdownOpen?: boolean }[],
   });
 
   let isSubmitting = $state(false);
+  /** Shown in the footer when closing would throw away what the user entered. */
+  let confirmDiscard = $state(false);
+
+  // The image alone doesn't count: it is often prefilled rather than typed
+  const isDirty = $derived(
+    !!form.name ||
+    form.env_vars.length > 0 || form.ports.length > 0 || form.mounts.length > 0 ||
+    !form.isolated_home || form.volatile || form.disable_network
+  );
   let errorMsg = $state("");
   let localImages = $state<string[]>([]);
   let isImageDropdownOpen = $state(false);
 
+  // Typing filters the list; once the field exactly matches an image, show them all again
+  const imageMatches = $derived(
+    localImages.includes(form.image)
+      ? localImages
+      : localImages.filter((img) => img.toLowerCase().includes(form.image.trim().toLowerCase()))
+  );
+  // Podman lists Hub images as docker.io/library/<name>, so match those too
+  const isLocalImage = $derived(
+    localImages.some((img) => img === form.image || img.endsWith(`/${form.image}`))
+  );
+
   $effect(() => {
     if (isOpen) {
-      fetchImages();
+      // Only react to opening; consuming wizardImage below must not re-trigger this
+      untrack(() => {
+        errorMsg = "";
+        confirmDiscard = false;
+        if (uiState.wizardImage) {
+          form.image = uiState.wizardImage;
+          if (!form.name) form.name = suggestName(uiState.wizardImage);
+          uiState.wizardImage = null;
+        }
+        fetchImages();
+      });
     }
   });
+
+  /** "docker.io/library/node:22-alpine" -> "node-22-alpine" */
+  function suggestName(image: string): string {
+    const last = image.split("/").pop() ?? image;
+    return last.replace(/:latest$/, "").replace(/[^a-zA-Z0-9_.-]/g, "-").replace(/^[^a-zA-Z0-9]+/, "");
+  }
 
   async function fetchImages() {
     try {
@@ -46,8 +83,9 @@
     e.preventDefault();
     errorMsg = "";
     
-    if (!form.name || !form.image) {
-      errorMsg = "Name and Image are required.";
+    const validationError = validate();
+    if (validationError) {
+      errorMsg = validationError;
       return;
     }
 
@@ -56,16 +94,7 @@
       await invoke("create_vessel", { payload: form });
       onSuccess();
       onClose();
-      form = {
-        name: "",
-        image: form.image,
-        isolated_home: true,
-        volatile: false,
-        disable_network: false,
-        env_vars: [],
-        ports: [],
-        mounts: [],
-      };
+      resetForm();
     } catch (err: any) {
       errorMsg = err.toString();
     } finally {
@@ -73,8 +102,78 @@
     }
   }
 
+  /** Clear everything except the image, which is handy to reuse for the next vessel. */
+  function resetForm() {
+    form = {
+      name: "",
+      image: form.image,
+      isolated_home: true,
+      volatile: false,
+      disable_network: false,
+      env_vars: [],
+      ports: [],
+      mounts: [],
+    };
+  }
+
+  /** Close via X / Cancel / Esc. Asks first if that would discard user input. */
+  function requestClose() {
+    if (isSubmitting) return;
+    if (isDirty && !confirmDiscard) {
+      confirmDiscard = true;
+      return;
+    }
+    confirmDiscard = false;
+    resetForm();
+    onClose();
+  }
+
+  function handleWindowKeydown(e: KeyboardEvent) {
+    if (!isOpen || e.key !== "Escape") return;
+    if (isImageDropdownOpen) {
+      isImageDropdownOpen = false;
+    } else if (confirmDiscard) {
+      confirmDiscard = false; // Esc on the prompt means "keep editing"
+    } else {
+      requestClose();
+    }
+  }
+
+  /** Enter in a text field submits, unless it's picking from the image list. */
+  function handleFormKeydown(e: KeyboardEvent) {
+    const target = e.target as HTMLElement;
+    if (e.key === "Enter" && target instanceof HTMLInputElement && target.type !== "checkbox"
+        && !isImageDropdownOpen && !isSubmitting) {
+      handleSubmit(e);
+    }
+  }
+
+  /** Mirrors the backend checks so mistakes surface before anything is pulled. */
+  function validate(): string | null {
+    if (!form.name || !form.image) return "Name and Image are required.";
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(form.name)) {
+      return "Vessel name must start with a letter or digit and contain only letters, digits, '_', '.' or '-'.";
+    }
+    const isPort = (p: unknown) => Number.isInteger(p) && (p as number) >= 1 && (p as number) <= 65535;
+    for (const port of form.ports) {
+      if (!isPort(port.host) || !isPort(port.container)) {
+        return "Ports must be whole numbers between 1 and 65535.";
+      }
+    }
+    const hostPorts = form.ports.map((p) => p.host);
+    if (new Set(hostPorts).size !== hostPorts.length) {
+      return "Each host port can only be mapped once.";
+    }
+    for (const mount of form.mounts) {
+      if (!mount.host_path.startsWith("/") || !mount.container_path.startsWith("/")) {
+        return "Mount paths must be absolute (start with /).";
+      }
+    }
+    return null;
+  }
+
   function addPort() {
-    form.ports = [...form.ports, { host: 8080, container: 80 }];
+    form.ports = [...form.ports, { host: 8080, container: 80, expose_lan: false }];
   }
 
   function removePort(index: number) {
@@ -98,17 +197,23 @@
   }
 </script>
 
+<svelte:window onkeydown={handleWindowKeydown} />
+
 {#if isOpen}
-  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in" onclick={onClose}>
+  <!-- No backdrop click-to-close: a stray click shouldn't throw away a half-filled form -->
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
     <div 
       class="bg-[var(--color-kap-surface)] w-full max-w-2xl rounded-xl shadow-2xl border border-white/10 flex flex-col max-h-[90vh] overflow-hidden"
-      onclick={(e) => e.stopPropagation()}
+      role="dialog"
+      tabindex="-1"
+      aria-modal="true"
+      aria-labelledby="wizard-title"
+      onkeydown={handleFormKeydown}
     >
       <!-- Header -->
       <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between bg-[var(--color-kap-surface)] z-10">
-        <h2 class="text-lg font-semibold m-0">Create Vessel</h2>
-        <button aria-label="Close wizard" class="btn btn-ghost p-1 rounded-full text-white/50 hover:text-white" onclick={onClose}>
+        <h2 id="wizard-title" class="text-lg font-semibold m-0">Create Vessel</h2>
+        <button aria-label="Close wizard" class="btn btn-ghost p-1 rounded-full text-white/50 hover:text-white" onclick={requestClose}>
           <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
         </button>
       </div>
@@ -137,33 +242,46 @@
             </div>
             
             <div class="space-y-1.5">
-              <label for="container-image-btn" class="text-sm font-medium">Container Image</label>
+              <label for="container-image-input" class="text-sm font-medium">Container Image</label>
               <div class="relative">
-                <button 
-                  id="container-image-btn"
-                  type="button"
-                  class="kap-input w-full flex items-center justify-between text-left {isImageDropdownOpen ? 'rounded-b-none border-b-[var(--color-kap-border)]' : ''}" 
-                  onclick={() => isImageDropdownOpen = !isImageDropdownOpen}
-                >
-                  <span class="truncate pr-4">
-                    {#if form.image}
-                      {form.image}
-                    {:else}
-                      <span class="text-[var(--color-kap-muted)]">Select an image...</span>
-                    {/if}
-                  </span>
-                  <svg class="w-4 h-4 text-white/50 shrink-0 transition-transform {isImageDropdownOpen ? 'rotate-180' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
-                </button>
+                <!-- Pick a local image or type any reference; unknown ones are pulled on launch -->
+                <div class="relative">
+                  <input
+                    id="container-image-input"
+                    type="text"
+                    autocomplete="off"
+                    spellcheck="false"
+                    class="kap-input w-full pr-8 {isImageDropdownOpen ? 'rounded-b-none border-b-[var(--color-kap-border)]' : ''}"
+                    placeholder="Pick or type, e.g. node:22"
+                    bind:value={form.image}
+                    onfocus={() => isImageDropdownOpen = true}
+                    oninput={() => isImageDropdownOpen = true}
+                    onkeydown={(e) => { if (e.key === "Escape" && isImageDropdownOpen) { e.stopPropagation(); isImageDropdownOpen = false; } }}
+                  />
+                  <button
+                    type="button"
+                    aria-label="Show local images"
+                    class="absolute right-1 top-1/2 -translate-y-1/2 p-1 text-white/50 hover:text-white"
+                    onclick={() => isImageDropdownOpen = !isImageDropdownOpen}
+                  >
+                    <svg class="w-4 h-4 transition-transform {isImageDropdownOpen ? 'rotate-180' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                  </button>
+                </div>
+                {#if form.image.trim() && !isLocalImage}
+                  <p class="text-xs text-[var(--color-kap-muted)] mt-1">Not downloaded yet — it will be pulled when you launch.</p>
+                {/if}
                 
                 {#if isImageDropdownOpen}
                   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
                   <div class="fixed inset-0 z-40" onclick={() => isImageDropdownOpen = false}></div>
                   
                   <div class="absolute top-full left-0 right-0 z-50 bg-[var(--color-kap-surface2)] border border-[var(--color-kap-border)] border-t-0 rounded-b-[var(--radius-kap-sm)] shadow-xl max-h-60 overflow-y-auto kap-scrollbar flex flex-col">
-                    {#if localImages.length === 0}
-                      <div class="px-3 py-3 text-sm text-[var(--color-kap-muted)] italic">No local images found</div>
+                    {#if imageMatches.length === 0}
+                      <div class="px-3 py-3 text-sm text-[var(--color-kap-muted)] italic">
+                        {localImages.length === 0 ? "No local images yet" : "No matching local images"}
+                      </div>
                     {/if}
-                    {#each localImages as img}
+                    {#each imageMatches as img}
                       <button 
                         type="button"
                         class="px-3 py-2.5 text-sm text-left hover:bg-white/5 transition-colors {form.image === img ? 'bg-white/10' : ''}"
@@ -215,12 +333,12 @@
             
             <div class="p-4 flex items-center justify-between">
               <div>
-                <p class="font-medium text-sm text-[var(--color-kap-destruct)]">Air-Gap (Disable Network)</p>
+                <p class="font-medium text-sm">Air-Gap (Disable Network)</p>
                 <p class="text-xs text-white/50 mt-0.5">Run without any internet or host network access.</p>
               </div>
               <label class="relative inline-flex items-center cursor-pointer">
                 <input type="checkbox" bind:checked={form.disable_network} class="sr-only peer">
-                <div class="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-kap-destruct)]"></div>
+                <div class="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[var(--color-kap-accent)]"></div>
               </label>
             </div>
           </div>
@@ -311,6 +429,11 @@
                 <input type="number" class="kap-input w-24 text-sm" placeholder="Host" bind:value={port.host} />
                 <span class="text-white/50">→</span>
                 <input type="number" class="kap-input w-24 text-sm" placeholder="Container" bind:value={port.container} />
+                <label class="flex items-center gap-1.5 text-xs text-white/60 cursor-pointer ml-2"
+                       title="Bind on all network interfaces so other devices can connect. Off = this machine only (127.0.0.1).">
+                  <input type="checkbox" bind:checked={port.expose_lan} class="accent-[var(--color-kap-accent)]" />
+                  Expose to LAN
+                </label>
                 <button aria-label="Remove port mapping" class="btn btn-ghost text-red-400 hover:bg-red-400/10 p-2 ml-auto" onclick={() => removePort(i)}>
                   <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
                 </button>
@@ -322,11 +445,21 @@
       </div>
 
       <!-- Footer Actions -->
-      <div class="p-4 border-t border-white/10 bg-[var(--color-kap-surface)] flex justify-end gap-3 z-10">
-        <button class="btn btn-secondary px-6" onclick={onClose} disabled={isSubmitting}>Cancel</button>
-        <button class="btn btn-primary px-8" onclick={handleSubmit} disabled={isSubmitting}>
-          {isSubmitting ? 'Creating...' : 'Launch Vessel'}
-        </button>
+      <div class="p-4 border-t border-white/10 bg-[var(--color-kap-surface)] flex items-center justify-end gap-3 z-10">
+        {#if confirmDiscard}
+          <span class="text-sm text-[var(--color-kap-text-dim)] mr-auto animate-fade-in">Discard this vessel's settings?</span>
+          <button class="btn btn-ghost px-4" onclick={() => confirmDiscard = false}>Keep editing</button>
+          <button class="btn btn-danger px-4" onclick={requestClose}>Discard</button>
+        {:else}
+          <button class="btn btn-ghost px-6" onclick={requestClose} disabled={isSubmitting}>Cancel</button>
+          <button class="btn btn-primary px-8" onclick={handleSubmit} disabled={isSubmitting}>
+            {#if isSubmitting}
+              {isLocalImage ? "Creating…" : "Pulling image & creating…"}
+            {:else}
+              {isLocalImage ? "Launch Vessel" : "Pull & Launch"}
+            {/if}
+          </button>
+        {/if}
       </div>
 
     </div>

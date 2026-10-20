@@ -17,7 +17,6 @@
   let term: Terminal | null = null;
   let fitAddon: FitAddon | null = null;
   let resizeObserver: ResizeObserver | null = null;
-  let isTerminalOpen = false;
   let activeStreamId: string | null = null;
 
   function initTerminal() {
@@ -36,16 +35,28 @@
   }
 
   function openTerminal() {
-    if (!term || !terminalContainer || isTerminalOpen) return;
+    // `term.element` is set once xterm has been attached to the DOM
+    if (!term || !terminalContainer || term.element) return;
     term.open(terminalContainer);
     fitAddon?.fit();
-    isTerminalOpen = true;
 
     // Observe container resizes
-    resizeObserver = new ResizeObserver(() => {
-      if (fitAddon && isTerminalOpen) fitAddon.fit();
-    });
+    resizeObserver = new ResizeObserver(() => fitAddon?.fit());
     resizeObserver.observe(terminalContainer);
+  }
+
+  /** Stop the backend stream and dispose xterm. The overlay's DOM is removed
+   *  on close, so the next open must build a fresh terminal on the new element. */
+  function closeTerminal() {
+    activeStreamId = null;
+    resizeObserver?.disconnect();
+    resizeObserver = null;
+    if (term) {
+      term.dispose();
+      term = null;
+      fitAddon = null;
+      invoke("stop_vessel_logs").catch((err) => console.error("Failed to stop log stream:", err));
+    }
   }
 
   async function startLogStream(id: string) {
@@ -74,33 +85,32 @@
 
   // When vesselId changes, start a new log stream
   $effect(() => {
-    if (vesselId) {
+    const id = vesselId;
+    if (id) {
       initTerminal();
       // Need to defer opening until the DOM element is rendered
       requestAnimationFrame(() => {
+        if (vesselId !== id) return; // Closed before the frame fired
         openTerminal();
-        startLogStream(vesselId);
+        startLogStream(id);
       });
     } else {
-      // Vessel closed — stop stream
-      activeStreamId = null;
+      closeTerminal();
     }
   });
 
-  onDestroy(() => {
-    activeStreamId = null;
-    if (resizeObserver) resizeObserver.disconnect();
-    if (term) {
-      term.dispose();
-      term = null;
-      isTerminalOpen = false;
-    }
-  });
+  onDestroy(closeTerminal);
 </script>
 
+<svelte:window onkeydown={(e) => { if (vesselId && e.key === "Escape") onClose(); }} />
+
 {#if vesselId}
-  <div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-8 animate-fade-in">
-    <div class="bg-[var(--color-kap-window)] rounded-xl w-full max-w-4xl h-full max-h-[70vh] shadow-2xl flex flex-col overflow-hidden border border-white/10">
+  <!-- Read-only view, so a backdrop click can safely close it -->
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-8 animate-fade-in" onclick={onClose}>
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div class="bg-[var(--color-kap-window)] rounded-xl w-full max-w-4xl h-full max-h-[70vh] shadow-2xl flex flex-col overflow-hidden border border-white/10"
+         onclick={(e) => e.stopPropagation()}>
       
       <div class="flex items-center justify-between px-4 py-2 border-b border-white/10 bg-[#1e1e1e]">
         <div class="flex items-center gap-2">

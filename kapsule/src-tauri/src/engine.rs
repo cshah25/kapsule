@@ -316,6 +316,37 @@ async fn probe_candidates(candidates: &[PathBuf], diagnostics: &mut Vec<String>)
 }
 
 // ---------------------------------------------------------------------------
+// Persisted preference
+// ---------------------------------------------------------------------------
+
+/// User settings persisted between launches.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct Preferences {
+    preferred_engine: Option<Engine>,
+}
+
+fn preferences_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|d| d.join("kapsule").join("config.json"))
+}
+
+/// The engine the user last switched to, if any. A missing or unreadable
+/// file just means "no preference".
+pub fn load_preferred_engine() -> Option<Engine> {
+    let contents = std::fs::read_to_string(preferences_path()?).ok()?;
+    serde_json::from_str::<Preferences>(&contents).ok()?.preferred_engine
+}
+
+pub fn save_preferred_engine(engine: Engine) -> Result<(), String> {
+    let path = preferences_path().ok_or("Could not determine the config directory")?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let prefs = Preferences { preferred_engine: Some(engine) };
+    let json = serde_json::to_string_pretty(&prefs).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Public API called from Tauri commands
 // ---------------------------------------------------------------------------
 

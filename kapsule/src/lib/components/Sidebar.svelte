@@ -2,9 +2,9 @@
   /**
    * Sidebar.svelte — Left navigation rail with icon + label items.
    *
-   * Uses SvelteKit's `page` store to highlight the active route.
+   * Uses SvelteKit's `page` state to highlight the active route.
    */
-  import { page } from "$app/stores";
+  import { page } from "$app/state";
 
   interface NavItem {
     id: string;
@@ -24,7 +24,7 @@
       id: "nav-library",
       href: "/library",
       label: "Library",
-      icon: `<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>`,
+      icon: `<path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>`,
     },
     {
       id: "nav-settings",
@@ -35,12 +35,12 @@
   ];
 
   function isActive(href: string): boolean {
-    if (href === "/") return $page.url.pathname === "/";
-    return $page.url.pathname.startsWith(href);
+    if (href === "/") return page.url.pathname === "/";
+    return page.url.pathname.startsWith(href);
   }
 </script>
 
-<nav class="flex flex-col gap-1 py-3 px-2 w-[68px] shrink-0"
+<nav class="flex flex-col gap-1 py-3 px-2 w-[76px] shrink-0"
      style="background: var(--color-kap-surface); border-right: 1px solid var(--color-kap-border);">
   {#each navItems as item}
     <a
@@ -51,11 +51,12 @@
                ? 'bg-[color-mix(in_srgb,var(--color-kap-accent)_20%,transparent)] text-[var(--color-kap-accent)]'
                : 'text-[var(--color-kap-muted)] hover:bg-[var(--color-kap-surface2)] hover:text-[var(--color-kap-text)]'}"
       title={item.label}
+      aria-current={isActive(item.href) ? "page" : undefined}
     >
       <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
         {@html item.icon}
       </svg>
-      <span class="text-[9px] font-medium leading-none">{item.label}</span>
+      <span class="text-[11px] font-medium leading-none">{item.label}</span>
     </a>
   {/each}
 </nav>

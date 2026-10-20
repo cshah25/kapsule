@@ -19,7 +19,8 @@ class ToastStore {
   }
 
   error(message: string) {
-    this.add(message, 'error', 5000);
+    // Errors often carry engine output worth reading; they can still be clicked away
+    this.add(message, 'error', 8000);
   }
 
   success(message: string) {
