@@ -2,9 +2,9 @@
   /**
    * Sidebar.svelte — Left navigation rail with icon + label items.
    *
-   * Uses SvelteKit's `page` store to highlight the active route.
+   * Uses SvelteKit's `page` state to highlight the active route.
    */
-  import { page } from "$app/stores";
+  import { page } from "$app/state";
 
   interface NavItem {
     id: string;
@@ -35,8 +35,8 @@
   ];
 
   function isActive(href: string): boolean {
-    if (href === "/") return $page.url.pathname === "/";
-    return $page.url.pathname.startsWith(href);
+    if (href === "/") return page.url.pathname === "/";
+    return page.url.pathname.startsWith(href);
   }
 </script>
 

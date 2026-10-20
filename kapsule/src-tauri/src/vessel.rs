@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use tauri::{State, ipc::Channel};
-use bollard::container::{Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions, StatsOptions, RemoveContainerOptions, LogsOptions};
+use bollard::container::{Config, CreateContainerOptions, InspectContainerOptions, ListContainersOptions, MemoryStatsStats, StatsOptions, RemoveContainerOptions, LogsOptions};
 use bollard::models::{HostConfig, PortBinding};
 use bollard::image::{CreateImageOptions, ListImagesOptions};
 use futures_util::StreamExt;
@@ -93,6 +93,17 @@ async fn is_rootless(docker: &bollard::Docker) -> bool {
         .is_some_and(|opts| opts.iter().any(|o| o.contains("name=rootless")))
 }
 
+/// Append `:latest` when a reference has neither a tag nor a digest.
+/// The tag is after the last `/`, so a registry port (`host:5000/img`) isn't mistaken for one.
+fn with_default_tag(image: &str) -> String {
+    let last = image.rsplit('/').next().unwrap_or(image);
+    if last.contains(':') || image.contains('@') {
+        image.to_string()
+    } else {
+        format!("{}:latest", image)
+    }
+}
+
 /// Same rule the engines apply to container names (`[a-zA-Z0-9][a-zA-Z0-9_.-]*`).
 /// This also rules out `/`, `.` and `..`, so the name is safe as a path component.
 fn validate_vessel_name(name: &str) -> Result<(), String> {
@@ -182,20 +193,30 @@ pub async fn create_vessel(
             });
     }
 
+    // An untagged reference would make the engine pull *every* tag, and would
+    // never match the `repo:tag` entries we compare against below
+    let image = with_default_tag(&payload.image);
+
     // Only pull if image doesn't exist locally
     let images = docker.list_images(Some(ListImagesOptions::<String> {
         all: false,
         ..Default::default()
     })).await.map_err(|e| e.to_string())?;
 
+    // Podman lists Docker Hub images fully qualified (docker.io/library/ubuntu:latest)
+    let candidates = [
+        image.clone(),
+        format!("docker.io/{}", image),
+        format!("docker.io/library/{}", image),
+    ];
     let image_exists = images.iter().any(|img| {
-        img.repo_tags.iter().any(|t| *t == payload.image)
+        img.repo_tags.iter().any(|t| candidates.contains(t))
     });
 
     if !image_exists {
         let mut pull_stream = docker.create_image(
             Some(CreateImageOptions {
-                from_image: payload.image.clone(),
+                from_image: image.clone(),
                 ..Default::default()
             }),
             None,
@@ -265,7 +286,7 @@ pub async fn create_vessel(
     };
 
     let config = Config {
-        image: Some(payload.image),
+        image: Some(image),
         host_config: Some(host_config),
         env: Some(env),
         tty: Some(true),
@@ -291,6 +312,12 @@ pub async fn create_vessel(
     docker.start_container::<String>(&container.id, None).await.map_err(|e| format!("Start container failed: {}", e))?;
 
     Ok(())
+}
+
+/// Directory holding isolated vessel homes, for display in Settings.
+#[tauri::command]
+pub fn get_vessels_root() -> Option<String> {
+    vessels_root().map(|p| p.display().to_string())
 }
 
 #[tauri::command]
@@ -355,17 +382,25 @@ pub async fn get_all_vessel_stats(state: State<'_, AppState>) -> Result<HashMap<
 
     for (id, stat_res) in stats_results {
         if let Some(Ok(stats)) = stat_res {
-            let mem_usage = stats.memory_stats.usage.unwrap_or(0) as f64;
+            // Exclude reclaimable page cache, as `docker stats` does
+            let inactive_file = match stats.memory_stats.stats {
+                Some(MemoryStatsStats::V1(s)) => s.total_inactive_file,
+                Some(MemoryStatsStats::V2(s)) => s.inactive_file,
+                None => 0,
+            };
+            let mem_usage = stats.memory_stats.usage.unwrap_or(0).saturating_sub(inactive_file) as f64;
             let mem_limit = stats.memory_stats.limit.unwrap_or(0) as f64;
             let mem_used_mb = (mem_usage / 1024.0 / 1024.0 * 10.0).round() / 10.0;
             let mem_limit_mb = (mem_limit / 1024.0 / 1024.0).round();
 
             let cpu_delta = stats.cpu_stats.cpu_usage.total_usage as f64 - stats.precpu_stats.cpu_usage.total_usage as f64;
             let system_delta = stats.cpu_stats.system_cpu_usage.unwrap_or(0) as f64 - stats.precpu_stats.system_cpu_usage.unwrap_or(0) as f64;
+            // Share of the whole machine (0-100), not `docker stats`' per-core
+            // figure that exceeds 100% on multi-core hosts. Keeps the card's arc,
+            // its label, and the dashboard total consistent.
             let mut cpu_percent = 0.0;
             if system_delta > 0.0 && cpu_delta > 0.0 {
-                let online_cpus = stats.cpu_stats.online_cpus.unwrap_or(1) as f64;
-                cpu_percent = ((cpu_delta / system_delta) * online_cpus * 100.0 * 10.0).round() / 10.0;
+                cpu_percent = ((cpu_delta / system_delta) * 100.0 * 10.0).round() / 10.0;
             }
             result.insert(id, VesselStats { cpu_percent, mem_used_mb, mem_limit_mb });
         }

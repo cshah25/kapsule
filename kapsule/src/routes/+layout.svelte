@@ -7,6 +7,12 @@
    *  2. Run engine auto-detection on mount
    *  3. Render HeaderBar + Sidebar + main content area
    */
+  // Bundled rather than fetched from Google Fonts so the app works offline
+  // and the CSP doesn't need to allow third-party origins
+  import "@fontsource/inter/400.css";
+  import "@fontsource/inter/500.css";
+  import "@fontsource/inter/600.css";
+  import "@fontsource/inter/700.css";
   import "../app.css";
   import { onMount } from "svelte";
   import HeaderBar from "$lib/components/HeaderBar.svelte";

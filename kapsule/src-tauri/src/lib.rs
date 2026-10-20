@@ -116,6 +116,7 @@ pub fn run() {
             set_engine, 
             vessel::create_vessel,
             vessel::list_vessels,
+            vessel::get_vessels_root,
             vessel::get_all_vessel_stats,
             vessel::start_vessel,
             vessel::resume_vessel,

@@ -76,7 +76,7 @@
   {#if isRunning}
     <div class="flex items-center gap-4">
       <!-- CPU arc -->
-      <div class="flex flex-col items-center gap-1">
+      <div class="flex flex-col items-center gap-1" title="Share of total host CPU">
         <svg width="52" height="52" viewBox="0 0 48 48" fill="none">
           <!-- Track -->
           <circle cx="24" cy="24" r={R} stroke="var(--color-kap-border)" stroke-width="4"
