@@ -8,7 +8,7 @@
   import VesselCard from "$lib/components/VesselCard.svelte";
   import EmptyState from "$lib/components/EmptyState.svelte";
   import TerminalOverlay from "$lib/components/TerminalOverlay.svelte";
-  import { engineStatus, activeEngine } from "$lib/stores/engine";
+  import { engineStatus, activeEngine, engineLoading, detectEngines } from "$lib/stores/engine";
   import { uiState } from "$lib/stores/ui.svelte";
   import { toast } from "$lib/stores/toast.svelte";
   import { invoke } from "@tauri-apps/api/core";
@@ -173,6 +173,13 @@
     activeTerminalName = nameOf(id);
   }
 
+  /** Re-probe sockets (e.g. after fixing permissions or starting the daemon) without restarting the app. */
+  async function retryDetection() {
+    await detectEngines();
+    // Same engine as before won't re-trigger the $activeEngine effect, so refresh explicitly
+    await fetchVessels();
+  }
+
   function handleAddVessel() {
     uiState.isWizardOpen = true;
   }
@@ -226,6 +233,14 @@
         <p class="text-xs font-medium text-[var(--color-kap-warning)]">
           No container engine detected
         </p>
+        <button class="btn btn-ghost text-xs py-1 px-2.5 ml-auto shrink-0" onclick={retryDetection} disabled={$engineLoading}>
+          {#if $engineLoading}
+            <span class="w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin"></span>
+            Detecting…
+          {:else}
+            Retry detection
+          {/if}
+        </button>
       </div>
       {#if $engineStatus.diagnostics && $engineStatus.diagnostics.length > 0}
         <div class="flex flex-col gap-2 pl-7">
@@ -257,6 +272,14 @@
         </p>
         <p class="text-xs font-mono text-[var(--color-kap-text-dim)]" style="word-break: break-word;">{loadError}</p>
       </div>
+      <button class="btn btn-ghost text-xs py-1 px-2.5 ml-auto shrink-0" onclick={retryDetection} disabled={$engineLoading}>
+        {#if $engineLoading}
+          <span class="w-3 h-3 rounded-full border-2 border-current/30 border-t-current animate-spin"></span>
+          Detecting…
+        {:else}
+          Retry detection
+        {/if}
+      </button>
     </div>
   {/if}
 

@@ -58,16 +58,30 @@ impl AppState {
 // ---------------------------------------------------------------------------
 
 /// Probe for available container engines and return their status.
-/// Called once at startup from the Svelte `onMount`.
+/// Called at startup and again whenever the user asks to retry detection.
 #[tauri::command]
 async fn get_engine_status(state: State<'_, AppState>) -> Result<EngineStatus, String> {
-    let status = detect_engines().await;
-    if let Some(engine) = status.active_engine {
-        let mut lock = state.active_engine.lock().await;
-        if lock.is_none() {
-            *lock = Some(engine);
-        }
-        drop(lock);
+    let mut status = detect_engines().await;
+    let available = |e: Engine| match e {
+        Engine::Podman => status.podman_available,
+        Engine::Docker => status.docker_available,
+    };
+
+    // Keep the engine already in use if it's still up (a retry shouldn't flip
+    // engines), else the saved preference, else the detection default
+    let current = *state.active_engine.lock().await;
+    let chosen = current
+        .filter(|&e| available(e))
+        .or_else(|| engine::load_preferred_engine().filter(|&e| available(e)))
+        .or(status.active_engine);
+
+    // Report what the backend actually uses, so the UI can't disagree with it
+    status.active_engine = chosen;
+    *state.active_engine.lock().await = chosen;
+    // Drop the cached client so a retry reconnects (e.g. after fixing socket permissions)
+    *state.docker_client.lock().await = None;
+
+    if chosen.is_some() {
         // Pre-cache the client so the first list_vessels call is fast
         let _ = state.get_client().await;
     }
@@ -94,6 +108,11 @@ async fn set_engine(
     // Replace cached client
     let mut client_lock = state.docker_client.lock().await;
     *client_lock = Some(client);
+
+    // Remember the choice for next launch; failing to save shouldn't fail the switch
+    if let Err(e) = engine::save_preferred_engine(engine) {
+        eprintln!("[kapsule] Could not save engine preference: {}", e);
+    }
 
     Ok(())
 }
