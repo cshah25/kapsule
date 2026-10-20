@@ -28,12 +28,26 @@ Pre-compiled binaries are generated automatically and available on the [Releases
 - **Universal**: Download the `.AppImage`, mark it as executable (`chmod +x`), and run it directly.
 
 ### NixOS
-Kapsule is packaged as a native Nix Flake. The package automatically retrieves the latest release and patches it against your host's native graphical libraries (WebKitGTK, GTK3) for optimal performance and display server compatibility.
+Kapsule is packaged as a Nix Flake (x86_64-linux). The package retrieves the latest release and patches it against Nixpkgs' WebKitGTK and GTK3.
 
-Run Kapsule instantly without installation:
+Run Kapsule instantly without installation, built against your system's own nixpkgs:
 ```bash
-nix run github:cshah25/kapsule
+nix run github:cshah25/kapsule --override-input nixpkgs nixpkgs
 ```
+
+Or install it from a flake-based NixOS configuration:
+```nix
+# flake.nix
+inputs.kapsule = {
+  url = "github:cshah25/kapsule";
+  inputs.nixpkgs.follows = "nixpkgs";
+};
+
+# configuration.nix (with `inputs` passed via specialArgs)
+environment.systemPackages = [ inputs.kapsule.packages.${pkgs.system}.default ];
+```
+
+> **Why use your own nixpkgs?** Graphics drivers always come from your system, while the app's graphics libraries come from whichever nixpkgs it was built with. If that nixpkgs is much older than your system's, Kapsule may fail to start with `EGL_BAD_PARAMETER` or show a blank window. `--override-input nixpkgs nixpkgs` and `inputs.nixpkgs.follows` build it against the same nixpkgs as your drivers. Plain `nix run github:cshah25/kapsule` also works, using the pin refreshed at each release.
 
 ## Development
 

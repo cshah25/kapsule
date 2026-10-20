@@ -61,6 +61,10 @@ jobs:
           releaseDraft: false
           prerelease: false
 
+      # Needed to refresh flake.lock and verify the flake still builds
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+
       - name: Auto-update Nix Flake
         run: |
           DEB_FILE=$(find kapsule/src-tauri/target/release/bundle/deb -name "*.deb" | head -n 1)
@@ -87,10 +91,20 @@ jobs:
           sed -i "s|url = \".*\.deb\";|url = \"${NEW_URL}\";|g" flake.nix
           sed -i "s|sha256 = \".*\";|sha256 = \"${SRI_HASH}\";|g" flake.nix
           sed -i "s|version = \".*\";|version = \"${APP_VERSION}\";|g" flake.nix
+
+          # Refresh the nixpkgs pin each release. A stale pin pairs the app with
+          # graphics libraries older than users' drivers, which can stop it from
+          # starting (EGL_BAD_PARAMETER / blank window). Only keep the new pin
+          # if the package still builds with it, e.g. after nixpkgs renames.
+          nix flake update
+          if ! nix build .# --no-link -L; then
+            echo "::warning::Flake build failed with the refreshed nixpkgs pin; keeping the previous flake.lock"
+            git checkout -- flake.lock
+          fi
           
           # Commit and Push back to main
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add flake.nix
-          git commit -m "chore: auto-update flake.nix for ${{ github.ref_name }} [skip ci]" || echo "No changes to commit"
+          git add flake.nix flake.lock
+          git commit -m "chore: auto-update flake for ${{ github.ref_name }} [skip ci]" || echo "No changes to commit"
           git push origin HEAD:refs/heads/main
