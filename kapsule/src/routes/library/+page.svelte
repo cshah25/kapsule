@@ -113,12 +113,6 @@
     
     const channel = new Channel<PullProgress>();
     channel.onmessage = (msg) => {
-      if (msg.status === "Done") {
-        pulling = false;
-        forceComplete = true;
-        return;
-      }
-      
       if (msg.id && msg.total && msg.status === "Downloading") {
         layers[msg.id] = { current: msg.current || 0, total: msg.total };
       }
@@ -134,9 +128,14 @@
 
     const imageToPull = `${selectedImage}:${selectedTag}`;
     try {
+      // Resolves only once the pull has actually finished
       await invoke("pull_image", { image: imageToPull, onMessage: channel });
+      forceComplete = true;
+      toast.success(`Pulled ${imageToPull}`);
     } catch (err) {
-      toast.error(`Pull failed: ${err}`);
+      pullLog = [...pullLog, { status: String(err), progress: "" }];
+      toast.error(String(err));
+    } finally {
       pulling = false;
     }
   }
