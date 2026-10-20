@@ -1,6 +1,8 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
+  import { untrack } from "svelte";
   import { goto } from "$app/navigation";
+  import { uiState } from "$lib/stores/ui.svelte";
 
   let { isOpen, onClose, onSuccess } = $props<{
     isOpen: boolean;
@@ -24,12 +26,37 @@
   let localImages = $state<string[]>([]);
   let isImageDropdownOpen = $state(false);
 
+  // Typing filters the list; once the field exactly matches an image, show them all again
+  const imageMatches = $derived(
+    localImages.includes(form.image)
+      ? localImages
+      : localImages.filter((img) => img.toLowerCase().includes(form.image.trim().toLowerCase()))
+  );
+  // Podman lists Hub images as docker.io/library/<name>, so match those too
+  const isLocalImage = $derived(
+    localImages.some((img) => img === form.image || img.endsWith(`/${form.image}`))
+  );
+
   $effect(() => {
     if (isOpen) {
-      errorMsg = "";
-      fetchImages();
+      // Only react to opening; consuming wizardImage below must not re-trigger this
+      untrack(() => {
+        errorMsg = "";
+        if (uiState.wizardImage) {
+          form.image = uiState.wizardImage;
+          if (!form.name) form.name = suggestName(uiState.wizardImage);
+          uiState.wizardImage = null;
+        }
+        fetchImages();
+      });
     }
   });
+
+  /** "docker.io/library/node:22-alpine" -> "node-22-alpine" */
+  function suggestName(image: string): string {
+    const last = image.split("/").pop() ?? image;
+    return last.replace(/:latest$/, "").replace(/[^a-zA-Z0-9_.-]/g, "-").replace(/^[^a-zA-Z0-9]+/, "");
+  }
 
   async function fetchImages() {
     try {
@@ -162,33 +189,46 @@
             </div>
             
             <div class="space-y-1.5">
-              <label for="container-image-btn" class="text-sm font-medium">Container Image</label>
+              <label for="container-image-input" class="text-sm font-medium">Container Image</label>
               <div class="relative">
-                <button 
-                  id="container-image-btn"
-                  type="button"
-                  class="kap-input w-full flex items-center justify-between text-left {isImageDropdownOpen ? 'rounded-b-none border-b-[var(--color-kap-border)]' : ''}" 
-                  onclick={() => isImageDropdownOpen = !isImageDropdownOpen}
-                >
-                  <span class="truncate pr-4">
-                    {#if form.image}
-                      {form.image}
-                    {:else}
-                      <span class="text-[var(--color-kap-muted)]">Select an image...</span>
-                    {/if}
-                  </span>
-                  <svg class="w-4 h-4 text-white/50 shrink-0 transition-transform {isImageDropdownOpen ? 'rotate-180' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
-                </button>
+                <!-- Pick a local image or type any reference; unknown ones are pulled on launch -->
+                <div class="relative">
+                  <input
+                    id="container-image-input"
+                    type="text"
+                    autocomplete="off"
+                    spellcheck="false"
+                    class="kap-input w-full pr-8 {isImageDropdownOpen ? 'rounded-b-none border-b-[var(--color-kap-border)]' : ''}"
+                    placeholder="Pick or type, e.g. node:22"
+                    bind:value={form.image}
+                    onfocus={() => isImageDropdownOpen = true}
+                    oninput={() => isImageDropdownOpen = true}
+                    onkeydown={(e) => { if (e.key === "Escape" && isImageDropdownOpen) { e.stopPropagation(); isImageDropdownOpen = false; } }}
+                  />
+                  <button
+                    type="button"
+                    aria-label="Show local images"
+                    class="absolute right-1 top-1/2 -translate-y-1/2 p-1 text-white/50 hover:text-white"
+                    onclick={() => isImageDropdownOpen = !isImageDropdownOpen}
+                  >
+                    <svg class="w-4 h-4 transition-transform {isImageDropdownOpen ? 'rotate-180' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                  </button>
+                </div>
+                {#if form.image.trim() && !isLocalImage}
+                  <p class="text-xs text-[var(--color-kap-muted)] mt-1">Not downloaded yet — it will be pulled when you launch.</p>
+                {/if}
                 
                 {#if isImageDropdownOpen}
                   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
                   <div class="fixed inset-0 z-40" onclick={() => isImageDropdownOpen = false}></div>
                   
                   <div class="absolute top-full left-0 right-0 z-50 bg-[var(--color-kap-surface2)] border border-[var(--color-kap-border)] border-t-0 rounded-b-[var(--radius-kap-sm)] shadow-xl max-h-60 overflow-y-auto kap-scrollbar flex flex-col">
-                    {#if localImages.length === 0}
-                      <div class="px-3 py-3 text-sm text-[var(--color-kap-muted)] italic">No local images found</div>
+                    {#if imageMatches.length === 0}
+                      <div class="px-3 py-3 text-sm text-[var(--color-kap-muted)] italic">
+                        {localImages.length === 0 ? "No local images yet" : "No matching local images"}
+                      </div>
                     {/if}
-                    {#each localImages as img}
+                    {#each imageMatches as img}
                       <button 
                         type="button"
                         class="px-3 py-2.5 text-sm text-left hover:bg-white/5 transition-colors {form.image === img ? 'bg-white/10' : ''}"
@@ -353,9 +393,13 @@
 
       <!-- Footer Actions -->
       <div class="p-4 border-t border-white/10 bg-[var(--color-kap-surface)] flex justify-end gap-3 z-10">
-        <button class="btn btn-secondary px-6" onclick={onClose} disabled={isSubmitting}>Cancel</button>
+        <button class="btn btn-ghost px-6" onclick={onClose} disabled={isSubmitting}>Cancel</button>
         <button class="btn btn-primary px-8" onclick={handleSubmit} disabled={isSubmitting}>
-          {isSubmitting ? 'Creating...' : 'Launch Vessel'}
+          {#if isSubmitting}
+            {isLocalImage ? "Creating…" : "Pulling image & creating…"}
+          {:else}
+            {isLocalImage ? "Launch Vessel" : "Pull & Launch"}
+          {/if}
         </button>
       </div>
 

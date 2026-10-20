@@ -2,6 +2,7 @@
   import { invoke, Channel } from "@tauri-apps/api/core";
   import { onMount } from "svelte";
   import { toast } from "$lib/stores/toast.svelte";
+  import { openWizard } from "$lib/stores/ui.svelte";
 
   interface SearchResult {
     repo_name: string;
@@ -33,6 +34,8 @@
   let layers = $state<Record<string, { current: number, total: number }>>({});
   let logContainer = $state<HTMLDivElement | undefined>();
   let forceComplete = $state(false);
+  /** Set after a successful pull so the inspector can offer to create a vessel from it. */
+  let pulledImage = $state<string | null>(null);
 
   let totalBytes = $derived(Object.values(layers).reduce((acc, l) => acc + l.total, 0));
   let currentBytes = $derived(Object.values(layers).reduce((acc, l) => acc + l.current, 0));
@@ -89,6 +92,7 @@
 
   async function selectImage(repo_name: string) {
     selectedImage = repo_name;
+    pulledImage = null;
     loadingTags = true;
     tags = [];
     selectedTag = "latest";
@@ -131,6 +135,7 @@
       // Resolves only once the pull has actually finished
       await invoke("pull_image", { image: imageToPull, onMessage: channel });
       forceComplete = true;
+      pulledImage = imageToPull;
       toast.success(`Pulled ${imageToPull}`);
     } catch (err) {
       pullLog = [...pullLog, { status: String(err), progress: "" }];
@@ -252,12 +257,24 @@
         </div>
 
         <button 
-          class="btn btn-primary w-full justify-center" 
+          class="btn {pulledImage ? 'btn-ghost' : 'btn-primary'} w-full justify-center" 
           onclick={handlePull}
           disabled={pulling || loadingTags || tags.length === 0}
         >
           {pulling ? 'Pulling...' : 'Pull Image'}
         </button>
+
+        {#if pulledImage && !pulling}
+          <button
+            class="btn btn-primary w-full justify-center animate-fade-in"
+            onclick={() => openWizard(pulledImage!)}
+          >
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Create vessel from {pulledImage}
+          </button>
+        {/if}
 
         {#if pulling || pullLog.length > 0}
           <div class="flex flex-col gap-2 mt-2">
