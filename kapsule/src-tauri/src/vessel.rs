@@ -309,7 +309,7 @@ pub async fn stream_vessel_logs(
 ) -> Result<(), String> {
     let docker = state.get_client().await?;
 
-    tauri::async_runtime::spawn(async move {
+    let handle = tauri::async_runtime::spawn(async move {
         let mut stream = docker.logs(&id, Some(LogsOptions::<String> {
             follow: true,
             stdout: true,
@@ -331,6 +331,20 @@ pub async fn stream_vessel_logs(
         }
     });
 
+    // The webview keeps the channel alive, so `send` rarely fails on its own —
+    // abort any previous follower explicitly instead of leaking it.
+    if let Some(prev) = state.log_stream.lock().await.replace(handle) {
+        prev.abort();
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn stop_vessel_logs(state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(handle) = state.log_stream.lock().await.take() {
+        handle.abort();
+    }
     Ok(())
 }
 

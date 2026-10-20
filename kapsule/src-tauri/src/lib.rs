@@ -23,6 +23,9 @@ pub struct AppState {
     pub active_engine: Mutex<Option<Engine>>,
     /// Cached Docker/Podman client — avoids reconnecting on every command.
     pub docker_client: Mutex<Option<Docker>>,
+    /// Background task following the logs shown in the terminal overlay.
+    /// Only one overlay is open at a time, so starting a new stream aborts the old one.
+    pub log_stream: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
 }
 
 impl AppState {
@@ -106,6 +109,7 @@ pub fn run() {
         .manage(AppState {
             active_engine: Mutex::new(None),
             docker_client: Mutex::new(None),
+            log_stream: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             get_engine_status, 
@@ -117,6 +121,7 @@ pub fn run() {
             vessel::stop_vessel,
             vessel::delete_vessel,
             vessel::stream_vessel_logs,
+            vessel::stop_vessel_logs,
             vessel::list_local_images,
             library::search_images,
             library::get_image_tags,
