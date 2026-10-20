@@ -35,7 +35,7 @@
   {
     packages.${system}.default = pkgs.stdenv.mkDerivation {
       pname = "kapsule";
-      version = "0.1.0";
+      version = "2.1.1";
       
       src = pkgs.fetchurl {
         url = "https://github.com/cshah25/kapsule/releases/download/v2.2.0/kapsule_2.1.1_amd64.deb";
