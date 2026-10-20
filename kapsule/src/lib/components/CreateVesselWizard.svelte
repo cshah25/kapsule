@@ -1,7 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { goto } from "$app/navigation";
-  import { uiState } from "$lib/stores/ui.svelte";
 
   let { isOpen, onClose, onSuccess } = $props<{
     isOpen: boolean;
@@ -16,7 +15,7 @@
     volatile: false,
     disable_network: false,
     env_vars: [] as { key: string; value: string }[],
-    ports: [] as { host: number; container: number }[],
+    ports: [] as { host: number; container: number; expose_lan: boolean }[],
     mounts: [] as { host_path: string; container_path: string; read_only: boolean; isDropdownOpen?: boolean }[],
   });
 
@@ -27,6 +26,7 @@
 
   $effect(() => {
     if (isOpen) {
+      errorMsg = "";
       fetchImages();
     }
   });
@@ -46,8 +46,9 @@
     e.preventDefault();
     errorMsg = "";
     
-    if (!form.name || !form.image) {
-      errorMsg = "Name and Image are required.";
+    const validationError = validate();
+    if (validationError) {
+      errorMsg = validationError;
       return;
     }
 
@@ -73,8 +74,32 @@
     }
   }
 
+  /** Mirrors the backend checks so mistakes surface before anything is pulled. */
+  function validate(): string | null {
+    if (!form.name || !form.image) return "Name and Image are required.";
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(form.name)) {
+      return "Vessel name must start with a letter or digit and contain only letters, digits, '_', '.' or '-'.";
+    }
+    const isPort = (p: unknown) => Number.isInteger(p) && (p as number) >= 1 && (p as number) <= 65535;
+    for (const port of form.ports) {
+      if (!isPort(port.host) || !isPort(port.container)) {
+        return "Ports must be whole numbers between 1 and 65535.";
+      }
+    }
+    const hostPorts = form.ports.map((p) => p.host);
+    if (new Set(hostPorts).size !== hostPorts.length) {
+      return "Each host port can only be mapped once.";
+    }
+    for (const mount of form.mounts) {
+      if (!mount.host_path.startsWith("/") || !mount.container_path.startsWith("/")) {
+        return "Mount paths must be absolute (start with /).";
+      }
+    }
+    return null;
+  }
+
   function addPort() {
-    form.ports = [...form.ports, { host: 8080, container: 80 }];
+    form.ports = [...form.ports, { host: 8080, container: 80, expose_lan: false }];
   }
 
   function removePort(index: number) {
@@ -311,6 +336,11 @@
                 <input type="number" class="kap-input w-24 text-sm" placeholder="Host" bind:value={port.host} />
                 <span class="text-white/50">→</span>
                 <input type="number" class="kap-input w-24 text-sm" placeholder="Container" bind:value={port.container} />
+                <label class="flex items-center gap-1.5 text-xs text-white/60 cursor-pointer ml-2"
+                       title="Bind on all network interfaces so other devices can connect. Off = this machine only (127.0.0.1).">
+                  <input type="checkbox" bind:checked={port.expose_lan} class="accent-[var(--color-kap-accent)]" />
+                  Expose to LAN
+                </label>
                 <button aria-label="Remove port mapping" class="btn btn-ghost text-red-400 hover:bg-red-400/10 p-2 ml-auto" onclick={() => removePort(i)}>
                   <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
                 </button>

@@ -17,6 +17,9 @@ use crate::AppState;
 pub struct PortMapping {
     pub host: u16,
     pub container: u16,
+    /// Bind on all interfaces instead of loopback only.
+    #[serde(default)]
+    pub expose_lan: bool,
 }
 
 #[derive(Deserialize, Debug)]
@@ -78,6 +81,18 @@ fn vessels_root() -> Option<PathBuf> {
     dirs::data_local_dir().map(|d| d.join("kapsule").join("vessels"))
 }
 
+/// Whether the engine runs rootless. Both Docker and Podman report this as a
+/// `name=rootless` security option; assume rootful if the query fails, since
+/// that only skips keep-id rather than breaking container creation.
+async fn is_rootless(docker: &bollard::Docker) -> bool {
+    docker
+        .info()
+        .await
+        .ok()
+        .and_then(|info| info.security_options)
+        .is_some_and(|opts| opts.iter().any(|o| o.contains("name=rootless")))
+}
+
 /// Same rule the engines apply to container names (`[a-zA-Z0-9][a-zA-Z0-9_.-]*`).
 /// This also rules out `/`, `.` and `..`, so the name is safe as a path component.
 fn validate_vessel_name(name: &str) -> Result<(), String> {
@@ -132,6 +147,13 @@ pub async fn create_vessel(
 
     let mut binds = vec![];
     for mount in payload.mounts {
+        // A relative host path would silently become a named volume
+        if !mount.host_path.starts_with('/') || !mount.container_path.starts_with('/') {
+            return Err(format!(
+                "Mount paths must be absolute: '{}' -> '{}'",
+                mount.host_path, mount.container_path
+            ));
+        }
         let mut bind = format!("{}:{}", mount.host_path, mount.container_path);
         if mount.read_only {
             bind.push_str(":ro");
@@ -142,13 +164,22 @@ pub async fn create_vessel(
         binds.push(bind);
     }
 
-    let mut port_bindings = HashMap::new();
+    let mut port_bindings: HashMap<String, Option<Vec<PortBinding>>> = HashMap::new();
     for port in payload.ports {
-        let key = format!("{}/tcp", port.container);
-        port_bindings.insert(key, Some(vec![PortBinding {
-            host_ip: Some("0.0.0.0".to_string()),
-            host_port: Some(port.host.to_string()),
-        }]));
+        if port.host == 0 || port.container == 0 {
+            return Err("Ports must be between 1 and 65535".into());
+        }
+        // Loopback by default so mapped services aren't reachable from the LAN
+        let host_ip = if port.expose_lan { "0.0.0.0" } else { "127.0.0.1" };
+        // Append rather than overwrite so one container port can map to several host ports
+        port_bindings
+            .entry(format!("{}/tcp", port.container))
+            .or_insert_with(|| Some(vec![]))
+            .get_or_insert_with(Vec::new)
+            .push(PortBinding {
+                host_ip: Some(host_ip.to_string()),
+                host_port: Some(port.host.to_string()),
+            });
     }
 
     // Only pull if image doesn't exist locally
@@ -217,7 +248,8 @@ pub async fn create_vessel(
         None
     };
 
-    let userns_mode = if engine == crate::engine::Engine::Podman {
+    // keep-id maps the host user into the container, but rootful Podman rejects it
+    let userns_mode = if engine == crate::engine::Engine::Podman && is_rootless(&docker).await {
         Some("keep-id".to_string())
     } else {
         None
