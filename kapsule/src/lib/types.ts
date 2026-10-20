@@ -5,7 +5,7 @@
  * the Tauri backend and the Svelte frontend.
  */
 
-export type VesselStatus = "running" | "stopped" | "error";
+export type VesselStatus = "running" | "paused" | "restarting" | "stopped" | "error";
 
 export interface VesselInfo {
   id: string;

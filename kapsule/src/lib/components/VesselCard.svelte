@@ -14,12 +14,13 @@
   interface Props {
     vessel: VesselInfo;
     onStart?: (id: string) => void;
+    onResume?: (id: string) => void;
     onStop?: (id: string) => void;
     onDelete?: (id: string) => void;
     onTerminal?: (id: string) => void;
   }
 
-  let { vessel, onStart, onStop, onDelete, onTerminal }: Props = $props();
+  let { vessel, onStart, onResume, onStop, onDelete, onTerminal }: Props = $props();
 
   // ---------------------------------------------------------------------------
   // SVG arc meter helpers
@@ -46,6 +47,12 @@
   const memStyle = $derived(arcStyle(memPercent, "var(--color-kap-success)"));
 
   const isRunning = $derived(vessel.status === "running");
+
+  const idleMessage: Record<string, string> = {
+    paused: "Container is paused",
+    restarting: "Container is restarting…",
+    error: "Container is dead or being removed",
+  };
 </script>
 
 <article
@@ -116,7 +123,7 @@
     </div>
   {:else}
     <div class="h-14 flex items-center justify-center text-xs text-[var(--color-kap-muted)]">
-      Container is stopped
+      {idleMessage[vessel.status] ?? "Container is stopped"}
     </div>
   {/if}
 
@@ -140,6 +147,25 @@
           <polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/>
         </svg>
         Shell
+      </button>
+    {:else if vessel.status === "paused"}
+      <button
+        id="btn-resume-{vessel.id}"
+        class="btn btn-primary text-xs py-1 px-2.5 flex-1 justify-center min-w-[70px]"
+        onclick={() => onResume?.(vessel.id)}
+      >
+        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Resume
+      </button>
+    {:else if vessel.status === "restarting"}
+      <!-- Likely crash-looping; stopping is the useful action -->
+      <button
+        id="btn-stop-{vessel.id}"
+        class="btn btn-ghost text-xs py-1 px-2.5 flex-1 justify-center min-w-[70px]"
+        onclick={() => onStop?.(vessel.id)}
+      >
+        <svg class="w-3 h-3" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+        Stop
       </button>
     {:else}
       <button

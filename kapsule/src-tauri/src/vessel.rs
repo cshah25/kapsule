@@ -63,7 +63,7 @@ pub struct VesselInfo {
     pub id: String,
     pub name: String,
     pub image: String,
-    pub status: String, // "running" | "stopped" | "error"
+    pub status: String, // "running" | "paused" | "restarting" | "stopped" | "error"
     pub cpu_percent: f64,
     pub mem_used_mb: f64,
     pub mem_limit_mb: f64,
@@ -295,10 +295,8 @@ pub async fn create_vessel(
 
 #[tauri::command]
 pub async fn list_vessels(state: State<'_, AppState>) -> Result<Vec<VesselInfo>, String> {
-    let docker = match state.get_client().await {
-        Ok(d) => d,
-        Err(_) => return Ok(vec![]), // No engine = no vessels
-    };
+    // Propagate connection errors — an unreachable engine must not look like "no vessels"
+    let docker = state.get_client().await?;
     
     let containers = docker.list_containers(Some(ListContainersOptions::<String> {
         all: true,
@@ -311,8 +309,10 @@ pub async fn list_vessels(state: State<'_, AppState>) -> Result<Vec<VesselInfo>,
             .trim_start_matches('/').to_string();
         let status = match c.state.as_deref() {
             Some("running") => "running",
+            Some("paused") => "paused",
+            Some("restarting") => "restarting",
             Some("exited") | Some("created") => "stopped",
-            _ => "error",
+            _ => "error", // "dead", "removing", or unknown
         };
         VesselInfo {
             id: c.id.clone().unwrap_or_default(),
@@ -377,6 +377,12 @@ pub async fn get_all_vessel_stats(state: State<'_, AppState>) -> Result<HashMap<
 pub async fn start_vessel(state: State<'_, AppState>, id: String) -> Result<(), String> {
     let docker = state.get_client().await?;
     docker.start_container::<String>(&id, None).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn resume_vessel(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let docker = state.get_client().await?;
+    docker.unpause_container(&id).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

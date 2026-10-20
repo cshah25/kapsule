@@ -173,6 +173,8 @@ html, body {
 }
 .badge-running  { background-color: color-mix(in srgb, var(--color-kap-success) 20%, transparent); color: var(--color-kap-success); }
 .badge-stopped  { background-color: color-mix(in srgb, var(--color-kap-muted)   20%, transparent); color: var(--color-kap-muted); }
+.badge-paused     { background-color: color-mix(in srgb, var(--color-kap-warning) 20%, transparent); color: var(--color-kap-warning); }
+.badge-restarting { background-color: color-mix(in srgb, var(--color-kap-warning) 20%, transparent); color: var(--color-kap-warning); }
 .badge-error    { background-color: color-mix(in srgb, var(--color-kap-destruct) 20%, transparent); color: var(--color-kap-destruct); }
 
 /* Micro animations */

@@ -118,6 +118,7 @@ pub fn run() {
             vessel::list_vessels,
             vessel::get_all_vessel_stats,
             vessel::start_vessel,
+            vessel::resume_vessel,
             vessel::stop_vessel,
             vessel::delete_vessel,
             vessel::stream_vessel_logs,
